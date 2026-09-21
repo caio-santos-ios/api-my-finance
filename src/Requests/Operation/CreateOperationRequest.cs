@@ -1,0 +1,23 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace api_finances.src.Requests
+{
+    public class CreateOperationRequest : Request
+    {
+        [Required(ErrorMessage = "O Valor é obrigatório.")]
+        public decimal Value { get; set; }
+
+        [Required(ErrorMessage = "A Categoria é obrigatória.")]
+        public string CategoryId { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "O Banco é obrigatório.")]
+        public string BankId { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "A Descrição é obrigatória.")]
+        public string Description { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "O Tipo é obrigatório.")]
+        public string Type { get; set; } = string.Empty;
+        public bool Repeat { get; set; } = false;
+    }
+}
