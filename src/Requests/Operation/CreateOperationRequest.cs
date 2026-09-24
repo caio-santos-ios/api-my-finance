@@ -7,13 +7,12 @@ namespace api_finances.src.Requests
         [Required(ErrorMessage = "O Valor é obrigatório.")]
         public decimal Value { get; set; }
 
-        [Required(ErrorMessage = "A Categoria é obrigatória.")]
         public string CategoryId { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "O Banco é obrigatório.")]
         public string BankId { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "A Descrição é obrigatória.")]
+        public string DestinationBankId { get; set; } = string.Empty;
+
         public string Description { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "O Tipo é obrigatório.")]

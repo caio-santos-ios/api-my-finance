@@ -46,6 +46,9 @@ namespace api_finances.src.Configuration
             
             builder.Services.AddTransient<IBankService, BankService>();
             builder.Services.AddTransient<IBankRepository, BankRepository>();
+            
+            builder.Services.AddTransient<IAttachmentService, AttachmentService>();
+            builder.Services.AddTransient<IAttachmentRepository, AttachmentRepository>();
 
 
             Account account = new(

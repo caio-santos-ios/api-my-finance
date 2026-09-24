@@ -10,15 +10,15 @@ using MongoDB.Driver;
 
 namespace api_finances.src.Repository
 {
-    public class OperationRepository(AppDbContext context) : IOperationRepository
+    public class AttachmentRepository(AppDbContext context) : IAttachmentRepository
     {
         #region CREATE
-        public async Task<ResponseApi<Operation?>> CreateAsync(Operation operation)
+        public async Task<ResponseApi<Attachment?>> CreateAsync(Attachment attachment)
         {
             try
             {
-                await context.Operations.InsertOneAsync(operation);
-                return new(operation, 201, "Operação criado com sucesso");
+                await context.Attachments.InsertOneAsync(attachment);
+                return new(attachment, 201, "Anexo criado com sucesso");
             }
             catch
             {
@@ -27,7 +27,7 @@ namespace api_finances.src.Repository
         }
         #endregion
         #region READ
-        public async Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Operation> pagination)
+        public async Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Attachment> pagination)
         {
             try
             {
@@ -59,7 +59,7 @@ namespace api_finances.src.Repository
                     new("$sort", pagination.PipelineSort),
                 };
 
-                List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
+                List<BsonDocument> results = await context.Attachments.Aggregate<BsonDocument>(pipeline).ToListAsync();
                 List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
                 return new(list);
             }
@@ -68,7 +68,7 @@ namespace api_finances.src.Repository
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Operation> pagination)
+        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Attachment> pagination)
         {
             try
             {
@@ -79,13 +79,7 @@ namespace api_finances.src.Repository
 
                     new("$addFields", new BsonDocument
                     {
-                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", BsonNull.Value },
-                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
-                            })
-                        }
+                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
                     }),
 
                     MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
@@ -99,20 +93,12 @@ namespace api_finances.src.Repository
                         {"type", 1},
                         {"active", 1},
                         {"createdAt", 1},
-                        {"categoryId", 1},
-                        {"bankId", 1},
-                        { "categoryName", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", "Transferência" },
-                                { "else", MongoUtil.First("_categories.name") }
-                            })
-                        }
+                        {"categoryName", MongoUtil.First("_categories.name")},
                     }),
                     new("$sort", pagination.PipelineSort),
                 };
 
-                List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
+                List<BsonDocument> results = await context.Attachments.Aggregate<BsonDocument>(pipeline).ToListAsync();
                 List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
                 return new(list);
             }
@@ -140,32 +126,28 @@ namespace api_finances.src.Repository
                     }),
                 ];
 
-                BsonDocument? response = await context.Operations.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
+                BsonDocument? response = await context.Attachments.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
                 dynamic? result = response is null ? null : BsonSerializer.Deserialize<dynamic>(response);
-                return result is null ? new(null, 404, "Operação não encontrado") : new(result);
+                return result is null ? new(null, 404, "Anexo não encontrado") : new(result);
             }
             catch
             {
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<ResponseApi<Operation?>> GetByIdAsync(string id)
+        public async Task<ResponseApi<Attachment?>> GetByIdAsync(string id)
         {
             try
             {
-                Operation? operation = await context.Operations.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
-                return new(operation);
+                Attachment? attachment = await context.Attachments.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
+                return new(attachment);
             }
             catch
             {
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<long> GetNextCode(string userId)
-        {
-            return await context.Operations.Find(x => x.CreatedBy == userId).CountDocumentsAsync() + 1;
-        }
-        public async Task<int> GetCountDocumentsAsync(PaginationUtil<Operation> pagination)
+        public async Task<int> GetCountDocumentsAsync(PaginationUtil<Attachment> pagination)
         {
             List<BsonDocument> pipeline = new()
             {
@@ -187,17 +169,17 @@ namespace api_finances.src.Repository
                 new("$sort", pagination.PipelineSort),
             };
 
-            List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            List<BsonDocument> results = await context.Attachments.Aggregate<BsonDocument>(pipeline).ToListAsync();
             return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).Count();
         }
         #endregion
         #region UPDATE
-        public async Task<ResponseApi<Operation?>> UpdateAsync(Operation operation)
+        public async Task<ResponseApi<Attachment?>> UpdateAsync(Attachment attachment)
         {
             try
             {
-                await context.Operations.ReplaceOneAsync(x => x.Id == operation.Id, operation);
-                return new(operation, 200, "Operação atualizado com sucesso");
+                await context.Attachments.ReplaceOneAsync(x => x.Id == attachment.Id, attachment);
+                return new(attachment, 200, "Anexo atualizado com sucesso");
             }
             catch
             {
@@ -206,20 +188,20 @@ namespace api_finances.src.Repository
         }
         #endregion
         #region DELETE
-        public async Task<ResponseApi<Operation>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<Attachment>> DeleteAsync(DeleteDTO request)
         {
             try
             {
-                Operation? operation = await context.Operations.Find(x => x.Id == request.Id && !x.Deleted).FirstOrDefaultAsync();
-                if (operation is null) return new(null, 404, "Operação não encontrado");
+                Attachment? attachment = await context.Attachments.Find(x => x.Id == request.Id && !x.Deleted).FirstOrDefaultAsync();
+                if (attachment is null) return new(null, 404, "Anexo não encontrado");
 
-                operation.Deleted = true;
-                operation.DeletedAt = DateTime.UtcNow;
-                operation.DeletedBy = request.DeletedBy;
+                attachment.Deleted = true;
+                attachment.DeletedAt = DateTime.UtcNow;
+                attachment.DeletedBy = request.DeletedBy;
 
-                await context.Operations.ReplaceOneAsync(x => x.Id == operation.Id, operation);
+                await context.Attachments.ReplaceOneAsync(x => x.Id == attachment.Id, attachment);
 
-                return new(operation, 204, "Operação excluído com sucesso");
+                return new(attachment, 204, "Anexo excluído com sucesso");
             }
             catch
             {

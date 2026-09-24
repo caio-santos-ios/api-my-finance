@@ -15,6 +15,9 @@ namespace api_finances.src.Models
         [BsonElement("bankId")]
         public string BankId { get; set; } = string.Empty;
         
+        [BsonElement("destinationBankId")]
+        public string DestinationBankId { get; set; } = string.Empty;
+        
         [BsonElement("description")]
         public string Description { get; set; } = string.Empty;
 

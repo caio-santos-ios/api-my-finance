@@ -18,9 +18,9 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Operation> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetAllAsync(pagination);
+                ResponseApi<List<dynamic>> operations = await repository.GetAllAsync(pagination);
                 int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(categories.Data, count, pagination.PageNumber, pagination.PageSize);
+                PaginationApi<List<dynamic>> data = new(operations.Data, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Operações listados com sucesso");
             }
             catch (Exception ex)
@@ -33,8 +33,8 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Operation> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetSelectAsync(pagination);
-                return new(categories.Data, 200, "Operações listados com sucesso");
+                ResponseApi<List<dynamic>> operations = await repository.GetSelectAsync(pagination);
+                return new(operations.Data, 200, "Operações listados com sucesso");
             }
             catch (Exception ex)
             {
@@ -61,6 +61,12 @@ namespace api_finances.src.Services
         {
             try
             {
+                if (request.Type != "transfer" && string.IsNullOrWhiteSpace(request.CategoryId))
+                    return new(null, 400, "A Categoria é obrigatória.");
+
+                if (request.Type == "transfer" && string.IsNullOrWhiteSpace(request.DestinationBankId))
+                    return new(null, 400, "O Banco de destino é obrigatório.");
+
                 Operation operation = ObjectMapper.Map<CreateOperationRequest, Operation>(request);
 
                 ResponseApi<Operation?> response = await repository.CreateAsync(operation);
@@ -81,6 +87,12 @@ namespace api_finances.src.Services
         {
             try
             {
+                if (request.Type != "transfer" && string.IsNullOrWhiteSpace(request.CategoryId))
+                    return new(null, 400, "A Categoria é obrigatória.");
+
+                if (request.Type == "transfer" && string.IsNullOrWhiteSpace(request.DestinationBankId))
+                    return new(null, 400, "O Banco de destino é obrigatório.");
+
                 ResponseApi<Operation?> existed = await repository.GetByIdAsync(request.Id);
                 if (existed.Data is null) return new(null, 404, "Falha ao atualizar");
 
@@ -89,6 +101,7 @@ namespace api_finances.src.Services
                 existed.Data.Value = request.Value;
                 existed.Data.CategoryId = request.CategoryId;
                 existed.Data.BankId = request.BankId;
+                existed.Data.DestinationBankId = request.DestinationBankId;
                 existed.Data.Description = request.Description;
                 existed.Data.Type = request.Type;
                 existed.Data.Repeat = request.Repeat;

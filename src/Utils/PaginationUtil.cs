@@ -45,6 +45,14 @@ namespace api_finances.src.Shared.Utils
                     string logic = "and";
                     string field = "";
 
+                    if (expressions.Length == 4)
+                    {
+                        comparison = $"${expressions[0]}";
+                        logic = expressions[1];
+                        field = expressions[2];
+                        type = expressions[3];
+                    };
+
                     if (expressions.Length == 3)
                     {
                         comparison = $"${expressions[0]}";

@@ -7,7 +7,7 @@ namespace api_finances.src.Helpers
     {
         private readonly string ApiUri = Environment.GetEnvironmentVariable("API_URI") ?? "";
 
-        public async Task<string> SaveFileAsync(IFormFile file)
+        public async Task<string> SaveFileAsync(IFormFile file, string folder)
         {
             try
             {
@@ -34,7 +34,7 @@ namespace api_finances.src.Helpers
                 var uploadParams = new RawUploadParams
                 {
                     File = new FileDescription(fileName + extension, memoryStream),
-                    Folder = "my-finances/users",
+                    Folder = $"my-finances/{folder}",
                     PublicId = fileName
                 };
 

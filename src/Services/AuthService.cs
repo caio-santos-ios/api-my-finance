@@ -77,7 +77,7 @@ namespace api_finances.src.Services
                 bool isValid = BCrypt.Net.BCrypt.Verify(request.Password, response.Data.Password);
                 if (!isValid) return new(null, 400, "Dados incorretos");
 
-                return new(new { Token = GenerateJwtToken(response.Data), response.Data.Photo, response.Data.Name, admin = response.Data.Admin.ToString() }, 200, "Login feito com sucesso.");
+                return new(new { Token = GenerateJwtToken(response.Data), RefreshToken = GenerateJwtToken(response.Data, true), response.Data.Photo, response.Data.Name, admin = response.Data.Admin.ToString() }, 200, "Login feito com sucesso.");
             }
             catch
             {

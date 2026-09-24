@@ -187,7 +187,7 @@ namespace api_finances.src.Services
                 if (user.Data is null) return new(null, 404, "Falha ao salvar foto de perfil");
                 if (request.Photo is null) return new(null, 404, "Falha ao salvar foto de perfil");
 
-                string uri = await uploadHelper.SaveFileAsync(request.Photo);
+                string uri = await uploadHelper.SaveFileAsync(request.Photo, "users");
                 user.Data.Photo = uri;
                 ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
                 if (!response.IsSuccess) return new(null, 400, "Falha ao salvar foto de perfil");
