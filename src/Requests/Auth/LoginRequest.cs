@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using api_finances.src.Models;
 
 namespace api_finances.src.Requests
 {
@@ -11,5 +12,6 @@ namespace api_finances.src.Requests
         [Required(ErrorMessage = "A Senha é obrigatório.")]
         [Display(Order = 2)]
         public string Password { get; set; } = string.Empty;
+        public UserDevice Device { get; set; } = new();
     }
 }

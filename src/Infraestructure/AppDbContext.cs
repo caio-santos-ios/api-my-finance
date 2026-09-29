@@ -37,6 +37,7 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<Bank> Banks => Database.GetCollection<Bank>("banks");
         public IMongoCollection<Operation> Operations => Database.GetCollection<Operation>("operations");
         public IMongoCollection<Attachment> Attachments => Database.GetCollection<Attachment>("attachments");
+        public IMongoCollection<Importation> Importations => Database.GetCollection<Importation>("importations");
     }
 }
 

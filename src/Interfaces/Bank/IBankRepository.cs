@@ -11,6 +11,8 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Bank> pagination);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Bank?>> GetByIdAsync(string id);
+        Task<Bank?> GetByCodeAsync(string code);
+        Task<Bank?> GetFirstAsync();
         Task<long> GetNextCode(string userId);
         Task<int> GetCountDocumentsAsync(PaginationUtil<Bank> pagination);
         Task<ResponseApi<Bank?>> CreateAsync(Bank entity);

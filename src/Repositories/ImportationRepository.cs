@@ -10,15 +10,15 @@ using MongoDB.Driver;
 
 namespace api_finances.src.Repository
 {
-    public class BankRepository(AppDbContext context) : IBankRepository
+    public class ImportationRepository(AppDbContext context) : IImportationRepository
     {
         #region CREATE
-        public async Task<ResponseApi<Bank?>> CreateAsync(Bank bank)
+        public async Task<ResponseApi<Importation?>> CreateAsync(Importation attachment)
         {
             try
             {
-                await context.Banks.InsertOneAsync(bank);
-                return new(bank, 201, "Banco criado com sucesso");
+                await context.Importations.InsertOneAsync(attachment);
+                return new(attachment, 201, "Importação criado com sucesso");
             }
             catch
             {
@@ -27,7 +27,7 @@ namespace api_finances.src.Repository
         }
         #endregion
         #region READ
-        public async Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Bank> pagination)
+        public async Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Importation> pagination)
         {
             try
             {
@@ -38,18 +38,28 @@ namespace api_finances.src.Repository
                     new("$skip", pagination.Skip),
                     new("$limit", pagination.Limit),
 
+                    new("$addFields", new BsonDocument
+                    {
+                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
                         {"id", new BsonDocument("$toString", "$_id")},
-                        {"name", 1},
-                        {"code", 1},
-                        {"active", 1}
+                        {"description", 1},
+                        {"value", 1},
+                        {"type", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
                     }),
                     new("$sort", pagination.PipelineSort),
                 };
 
-                List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(pipeline).ToListAsync();
+                List<BsonDocument> results = await context.Importations.Aggregate<BsonDocument>(pipeline).ToListAsync();
                 List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
                 return new(list);
             }
@@ -58,7 +68,7 @@ namespace api_finances.src.Repository
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Bank> pagination)
+        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Importation> pagination)
         {
             try
             {
@@ -67,18 +77,28 @@ namespace api_finances.src.Repository
                     new("$match", pagination.PipelineFilter),
                     new("$sort", pagination.PipelineSort),
 
+                    new("$addFields", new BsonDocument
+                    {
+                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
                         {"id", new BsonDocument("$toString", "$_id")},
-                        {"name", 1},
-                        {"code", 1},
-                        {"active", 1}
+                        {"description", 1},
+                        {"value", 1},
+                        {"type", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
                     }),
                     new("$sort", pagination.PipelineSort),
                 };
 
-                List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(pipeline).ToListAsync();
+                List<BsonDocument> results = await context.Importations.Aggregate<BsonDocument>(pipeline).ToListAsync();
                 List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
                 return new(list);
             }
@@ -106,42 +126,28 @@ namespace api_finances.src.Repository
                     }),
                 ];
 
-                BsonDocument? response = await context.Banks.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
+                BsonDocument? response = await context.Importations.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
                 dynamic? result = response is null ? null : BsonSerializer.Deserialize<dynamic>(response);
-                return result is null ? new(null, 404, "Banco não encontrado") : new(result);
+                return result is null ? new(null, 404, "Importação não encontrado") : new(result);
             }
             catch
             {
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<ResponseApi<Bank?>> GetByIdAsync(string id)
+        public async Task<ResponseApi<Importation?>> GetByIdAsync(string id)
         {
             try
             {
-                Bank? bank = await context.Banks.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
-                return new(bank);
+                Importation? attachment = await context.Importations.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
+                return new(attachment);
             }
             catch
             {
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
-        public async Task<Bank?> GetByCodeAsync(string code)
-        {
-            Bank? bank = await context.Banks.Find(x => x.Code == code && !x.Deleted).FirstOrDefaultAsync();
-            return bank;
-        }
-        public async Task<Bank?> GetFirstAsync()
-        {
-            Bank? bank = await context.Banks.Find(x => !x.Deleted).FirstOrDefaultAsync();
-            return bank;
-        }
-        public async Task<long> GetNextCode(string userId)
-        {
-            return await context.Banks.Find(x => x.CreatedBy == userId).CountDocumentsAsync() + 1;
-        }
-        public async Task<int> GetCountDocumentsAsync(PaginationUtil<Bank> pagination)
+        public async Task<int> GetCountDocumentsAsync(PaginationUtil<Importation> pagination)
         {
             List<BsonDocument> pipeline = new()
             {
@@ -163,17 +169,17 @@ namespace api_finances.src.Repository
                 new("$sort", pagination.PipelineSort),
             };
 
-            List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            List<BsonDocument> results = await context.Importations.Aggregate<BsonDocument>(pipeline).ToListAsync();
             return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).Count();
         }
         #endregion
         #region UPDATE
-        public async Task<ResponseApi<Bank?>> UpdateAsync(Bank bank)
+        public async Task<ResponseApi<Importation?>> UpdateAsync(Importation attachment)
         {
             try
             {
-                await context.Banks.ReplaceOneAsync(x => x.Id == bank.Id, bank);
-                return new(bank, 200, "Banco atualizado com sucesso");
+                await context.Importations.ReplaceOneAsync(x => x.Id == attachment.Id, attachment);
+                return new(attachment, 200, "Importação atualizado com sucesso");
             }
             catch
             {
@@ -182,20 +188,20 @@ namespace api_finances.src.Repository
         }
         #endregion
         #region DELETE
-        public async Task<ResponseApi<Bank>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<Importation>> DeleteAsync(DeleteDTO request)
         {
             try
             {
-                Bank? bank = await context.Banks.Find(x => x.Id == request.Id && !x.Deleted).FirstOrDefaultAsync();
-                if (bank is null) return new(null, 404, "Banco não encontrado");
+                Importation? attachment = await context.Importations.Find(x => x.Id == request.Id && !x.Deleted).FirstOrDefaultAsync();
+                if (attachment is null) return new(null, 404, "Importação não encontrado");
 
-                bank.Deleted = true;
-                bank.DeletedAt = DateTime.UtcNow;
-                bank.DeletedBy = request.DeletedBy;
+                attachment.Deleted = true;
+                attachment.DeletedAt = DateTime.UtcNow;
+                attachment.DeletedBy = request.DeletedBy;
 
-                await context.Banks.ReplaceOneAsync(x => x.Id == bank.Id, bank);
+                await context.Importations.ReplaceOneAsync(x => x.Id == attachment.Id, attachment);
 
-                return new(bank, 204, "Banco excluído com sucesso");
+                return new(attachment, 204, "Importação excluído com sucesso");
             }
             catch
             {

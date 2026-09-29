@@ -11,6 +11,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Operation> pagination);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Operation?>> GetByIdAsync(string id);
+        Task<Operation?> GetByOriginIdAsync(string originId);
         Task<long> GetNextCode(string userId);
         Task<int> GetCountDocumentsAsync(PaginationUtil<Operation> pagination);
         Task<ResponseApi<Operation?>> CreateAsync(Operation entity);

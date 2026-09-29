@@ -9,7 +9,9 @@ using api_finances.src.Utils;
 namespace api_finances.src.Services
 {
     public class OperationService(
-        IOperationRepository repository
+        IOperationRepository repository,
+        IAttachmentRepository attachmentRepository,
+        IBankRepository bankRepository
     ) : IOperationService
     {
         #region READ
@@ -71,6 +73,16 @@ namespace api_finances.src.Services
 
                 ResponseApi<Operation?> response = await repository.CreateAsync(operation);
                 if (response.Data is null) return new(null, 400, "Falha ao criar conta.");
+
+                if (!string.IsNullOrEmpty(request.ParentId))
+                {
+                    List<Attachment> attachments = await attachmentRepository.GetByParentIdAsync(request.ParentId, "operations");
+                    foreach (Attachment attachment in attachments)
+                    {
+                        attachment.ParentId = response.Data.Id;
+                        await attachmentRepository.UpdateAsync(attachment);
+                    }
+                }
 
                 return new(response.Data, 201, "Operação criado com sucesso.");
             }

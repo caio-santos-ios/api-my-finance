@@ -77,6 +77,10 @@ namespace api_finances.src.Services
                 bool isValid = BCrypt.Net.BCrypt.Verify(request.Password, response.Data.Password);
                 if (!isValid) return new(null, 400, "Dados incorretos");
 
+                response.Data.Devices.Add(request.Device);
+
+                await userRepository.UpdateAsync(response.Data);
+
                 return new(new { Token = GenerateJwtToken(response.Data), RefreshToken = GenerateJwtToken(response.Data, true), response.Data.Photo, response.Data.Name, admin = response.Data.Admin.ToString() }, 200, "Login feito com sucesso.");
             }
             catch
@@ -122,7 +126,10 @@ namespace api_finances.src.Services
 
                 dynamic generateCode = Util.GenerateCodeAccess();
 
-                response.Data.Password = BCrypt.Net.BCrypt.HashPassword(request.Password); ;
+                response.Data.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
+                response.Data.ValidatedAccess = true;
+                response.Data.CodeAccessExpiration = null;
+                response.Data.CodeAccess = "";
 
                 await userRepository.UpdateAsync(response.Data);
 

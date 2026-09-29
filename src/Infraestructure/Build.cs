@@ -50,6 +50,9 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IAttachmentService, AttachmentService>();
             builder.Services.AddTransient<IAttachmentRepository, AttachmentRepository>();
 
+            builder.Services.AddTransient<IImportationService, ImportationService>();
+            builder.Services.AddTransient<IImportationRepository, ImportationRepository>();
+
 
             Account account = new(
                 Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),

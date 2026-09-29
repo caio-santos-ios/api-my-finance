@@ -147,6 +147,11 @@ namespace api_finances.src.Repository
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
+        public async Task<List<Attachment>> GetByParentIdAsync(string parentId, string parent)
+        {
+            List<Attachment> attachments = await context.Attachments.Find(x => x.ParentId == parentId && x.Parent == parent && !x.Deleted).ToListAsync();
+            return attachments;
+        }
         public async Task<int> GetCountDocumentsAsync(PaginationUtil<Attachment> pagination)
         {
             List<BsonDocument> pipeline = new()

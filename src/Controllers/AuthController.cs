@@ -8,26 +8,29 @@ namespace api_finances.src.Controllers
     [Route("api/auth")]
     [ApiController]
     public class AuthController(IAuthService service) : ControllerBase
-    {   
-        
+    {
+
         [HttpPost("register")]
-        public async Task<IActionResult> Create([FromBody] CreateUserDTO user)
+        public async Task<IActionResult> Create([FromBody] CreateUserDTO request)
         {
-            if (user == null) return BadRequest("Dados inválidos.");
+            if (request == null) return BadRequest("Dados inválidos.");
 
-            ResponseApi<dynamic?> response = await service.CreateAsync(user);
+            ResponseApi<dynamic?> response = await service.CreateAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
-             
+
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequest body)
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            if (body == null) return BadRequest("Dados inválidos.");
+            if (request == null) return BadRequest("Dados inválidos.");
 
-            ResponseApi<dynamic?> response = await service.LoginAsync(body);
+            request.Device.Ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+            request.Device.UserAgent = Request.Headers.UserAgent.ToString();
+
+            ResponseApi<dynamic?> response = await service.LoginAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
-       
+
         [HttpPost("new-code")]
         public async Task<IActionResult> NewCode([FromBody] NewCodeRequest request)
         {
@@ -36,7 +39,7 @@ namespace api_finances.src.Controllers
             ResponseApi<dynamic?> response = await service.NewCodeAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
-        
+
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
@@ -45,7 +48,7 @@ namespace api_finances.src.Controllers
             ResponseApi<dynamic?> response = await service.ForgotPasswordAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
-        
+
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
         {

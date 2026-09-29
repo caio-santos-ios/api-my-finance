@@ -165,6 +165,10 @@ namespace api_finances.src.Repository
         {
             return await context.Operations.Find(x => x.CreatedBy == userId).CountDocumentsAsync() + 1;
         }
+        public async Task<Operation?> GetByOriginIdAsync(string originId)
+        {
+            return await context.Operations.Find(x => !x.Deleted && x.OriginId == originId).FirstOrDefaultAsync();
+        }
         public async Task<int> GetCountDocumentsAsync(PaginationUtil<Operation> pagination)
         {
             List<BsonDocument> pipeline = new()

@@ -38,16 +38,15 @@ namespace api_finances.src.Repository
                     new("$skip", pagination.Skip),
                     new("$limit", pagination.Limit),
 
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},                        
+                    }),
+
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
-                        {"name", 1},
-                        {"email", 1},
-                        {"admin", 1},
-                        {"blocked", 1},
-                        {"photo", 1},
-                        {"createdAt", 1},
+                        {"password", 0},
                     }),
                     new("$sort", pagination.PipelineSort),
                 };
@@ -79,14 +78,7 @@ namespace api_finances.src.Repository
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
-                        {"name", 1},
-                        {"email", 1},
-                        {"photo", 1},
-                        {"phone", 1},
-                        // {"admin", 1},
-                        // {"blocked", 1},
-                        // {"createdAt", 1}
+                        {"password", 0},                       
                     }),
                 ];
 

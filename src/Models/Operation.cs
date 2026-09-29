@@ -27,6 +27,12 @@ namespace api_finances.src.Models
         [BsonElement("type")]
         public string Type { get; set; } = string.Empty;
 
+        [BsonElement("origin")]
+        public string Origin { get; set; } = string.Empty;
+
+        [BsonElement("originId")]
+        public string OriginId { get; set; } = string.Empty;
+
         [BsonElement("repeat")]
         public bool Repeat { get; set; } = false;
     }
