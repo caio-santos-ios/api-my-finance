@@ -38,6 +38,7 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<Operation> Operations => Database.GetCollection<Operation>("operations");
         public IMongoCollection<Attachment> Attachments => Database.GetCollection<Attachment>("attachments");
         public IMongoCollection<Importation> Importations => Database.GetCollection<Importation>("importations");
+        public IMongoCollection<Budget> Budgets => Database.GetCollection<Budget>("budgets");
     }
 }
 

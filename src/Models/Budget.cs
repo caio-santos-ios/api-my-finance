@@ -17,5 +17,11 @@ namespace api_finances.src.Models
 
         [BsonElement("limit")]
         public decimal Limit { get; set; }
+
+        [BsonElement("receiveAlert")]
+        public bool ReceiveAlert { get; set; } = false;
+
+        [BsonElement("alertPercentage")]
+        public int AlertPercentage { get; set; } = 80;
     }
 }
