@@ -10,5 +10,6 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<dynamic?>> NewCodeAsync(NewCodeRequest request);
         Task<ResponseApi<dynamic?>> ForgotPasswordAsync(ForgotPasswordRequest request);
         Task<ResponseApi<dynamic?>> ResetPasswordAsync(ResetPasswordRequest request);
+        Task<ResponseApi<dynamic?>> CleanIncorrectPasswordAsync(CleanIncorrectPasswordRequest request);
     }
 }

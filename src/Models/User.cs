@@ -41,6 +41,9 @@ namespace api_finances.src.Models
 
         [BsonElement("devices")]
         public List<UserDevice> Devices { get; set; } = [];
+
+        [BsonElement("incorrectsPassword")]
+        public List<UserIncorrectPassword> IncorrectsPassword { get; set; } = [];
     }
 
     public class UserDevice
@@ -50,6 +53,18 @@ namespace api_finances.src.Models
 
         [BsonElement("userAgent")]
         public string UserAgent { get; set; } = string.Empty;
+
+        [BsonElement("platform")]
+        public string Platform { get; set; } = string.Empty;
+
+        [BsonElement("date")]
+        public DateTime Date { get; set; } = DateTime.UtcNow;
+    }
+
+    public class UserIncorrectPassword
+    {
+        [BsonElement("ip")]
+        public string Ip { get; set; } = string.Empty;
 
         [BsonElement("platform")]
         public string Platform { get; set; } = string.Empty;

@@ -2,6 +2,7 @@ using api_finances.src.Interfaces;
 using api_finances.src.Models.Base;
 using Microsoft.AspNetCore.Mvc;
 using api_finances.src.Requests;
+using Microsoft.AspNetCore.Authorization;
 
 namespace api_finances.src.Controllers
 {
@@ -55,6 +56,19 @@ namespace api_finances.src.Controllers
             if (request == null) return BadRequest("Dados inválidos.");
 
             ResponseApi<dynamic?> response = await service.ResetPasswordAsync(request);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+        
+        [HttpPost("clean-incorrect-password")]
+        [Authorize]
+        public async Task<IActionResult> CleanIncorrectPassword([FromBody] CleanIncorrectPasswordRequest request)
+        {
+            if (request == null) return BadRequest("Dados inválidos.");
+
+            bool isAdmin = User.FindFirst("admin")?.Value == "True";
+            if (!isAdmin) return Forbid();
+
+            ResponseApi<dynamic?> response = await service.CleanIncorrectPasswordAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
     }

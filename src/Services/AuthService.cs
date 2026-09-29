@@ -58,7 +58,7 @@ namespace api_finances.src.Services
                 ResponseApi<User?> response = await userRepository.GetByEmailAsync(request.Email);
                 if (response.Data is null) return new(null, 400, "E-mail ou senha são incorretos");
 
-                if (response.Data.Blocked) return new(null, 400, "Conta bloqueada, entre em contato com o Administrador do TaskFlow");
+                if (response.Data.Blocked) return new(null, 400, "Conta bloqueada, entre em contato com o Administrador");
 
                 if (!response.Data.ValidatedAccess)
                 {
@@ -75,7 +75,24 @@ namespace api_finances.src.Services
                 }
 
                 bool isValid = BCrypt.Net.BCrypt.Verify(request.Password, response.Data.Password);
-                if (!isValid) return new(null, 400, "Dados incorretos");
+                if (!isValid)
+                {
+                    if (response.Data.IncorrectsPassword.Count() > 5)
+                    {
+                        response.Data.Blocked = true;
+                        await userRepository.UpdateAsync(response.Data);
+                        return new(null, 400, "Usuário bloqueado, por tentativas de acesso indevido");
+                    }
+
+                    response.Data.IncorrectsPassword.Add(new UserIncorrectPassword()
+                    {
+                        Ip = request.Device.Ip,
+                        Date = DateTime.UtcNow,
+                        Platform = request.Device.Platform
+                    });
+                    await userRepository.UpdateAsync(response.Data);
+                    return new(null, 400, "Dados incorretos");
+                }
 
                 response.Data.Devices.Add(request.Device);
 
@@ -134,6 +151,25 @@ namespace api_finances.src.Services
                 await userRepository.UpdateAsync(response.Data);
 
                 return new(new { }, 200, "Senha resetada com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
+            }
+        }
+        public async Task<ResponseApi<dynamic?>> CleanIncorrectPasswordAsync(CleanIncorrectPasswordRequest request)
+        {
+            try
+            {
+                ResponseApi<User?> response = await userRepository.GetByIdAsync(request.UserId);
+                if (response.Data is null) return new(null, 404, "Usuário não encontrado");
+
+                response.Data.Blocked = false;
+                response.Data.IncorrectsPassword = [];
+
+                await userRepository.UpdateAsync(response.Data);
+
+                return new(new { }, 200, "Tentativa de login resetada com sucesso.");
             }
             catch (Exception ex)
             {
