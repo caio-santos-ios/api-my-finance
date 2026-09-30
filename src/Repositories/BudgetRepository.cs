@@ -39,6 +39,8 @@ namespace api_finances.src.Repository
                     new("$skip", pagination.Skip),
                     new("$limit", pagination.Limit),
 
+                    MongoUtil.Lookup("operations", ["$categoryId"], ["$categoryId"], "_operations", [["deleted", false]]),
+
                     new("$addFields", new BsonDocument
                     {
                         { "categoryObjId", new BsonDocument("$cond", new BsonDocument
@@ -52,35 +54,51 @@ namespace api_finances.src.Repository
 
                     MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
 
-                    new BsonDocument("$lookup", new BsonDocument
+                    // new BsonDocument("$lookup", new BsonDocument
+                    // {
+                    //     { "from", "operations" },
+                    //     { "let", new BsonDocument
+                    //         {
+                    //             { "catId", "$categoryId" },
+                    //             { "user", "$createdBy" }
+                    //         }
+                    //     },
+                    //     { "pipeline", new BsonArray
+                    //         {
+                    //             new BsonDocument("$match", new BsonDocument
+                    //             {
+                    //                 { "$expr", new BsonDocument
+                    //                     {
+                    //                         { "$and", new BsonArray
+                    //                             {
+                    //                                 new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
+                    //                                 new BsonDocument("$eq", new BsonArray { "$type", "expense" }),
+                    //                                 new BsonDocument("$eq", new BsonArray { "$deleted", false }),
+                    //                                 new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" })
+                    //                             }
+                    //                         }
+                    //                     }
+                    //                 }
+                    //             })
+                    //         }
+                    //     },
+                    //     { "as", "_operations" }
+                    // }),
+
+                    new("$addFields", new BsonDocument
                     {
-                        { "from", "operations" },
-                        { "let", new BsonDocument
+                        {"spent", new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                        {
+                            {"input", "$_operations"},
+                            {"as", "op"},
+                            {"in", new BsonDocument("$convert", new BsonDocument
                             {
-                                { "catId", "$categoryId" },
-                                { "user", "$createdBy" }
-                            }
-                        },
-                        { "pipeline", new BsonArray
-                            {
-                                new BsonDocument("$match", new BsonDocument
-                                {
-                                    { "$expr", new BsonDocument
-                                        {
-                                            { "$and", new BsonArray
-                                                {
-                                                    new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
-                                                    new BsonDocument("$eq", new BsonArray { "$type", "expense" }),
-                                                    new BsonDocument("$eq", new BsonArray { "$deleted", false }),
-                                                    new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" })
-                                                }
-                                            }
-                                        }
-                                    }
-                                })
-                            }
-                        },
-                        { "as", "_operations" }
+                                {"input", "$$op.value"},
+                                {"to", "double"},
+                                {"onError", 0.0},
+                                {"onNull", 0.0}
+                            })}
+                        }))},
                     }),
 
                     new("$project", new BsonDocument
@@ -93,12 +111,12 @@ namespace api_finances.src.Repository
                         {"limit", 1},
                         {"receiveAlert", 1},
                         {"alertPercentage", 1},
-                        {"spent", new BsonDocument("$sum", "$_operations.value")},
                         {"remaining", new BsonDocument("$subtract", new BsonArray
                         {
-                            "$limit",
-                            new BsonDocument("$sum", "$_operations.value")
+                            new BsonDocument("$toDouble", "$limit"),
+                            new BsonDocument("$toDouble", "$spent"),
                         })},
+                        {"spent", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     }),
@@ -109,8 +127,9 @@ namespace api_finances.src.Repository
                 List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
                 return new(list);
             }
-            catch
+            catch (Exception ex)
             {
+                System.Console.WriteLine(ex.Message);
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
             }
         }
