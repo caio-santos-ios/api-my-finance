@@ -110,6 +110,7 @@ namespace api_finances.src.Services
                 user.Data.UpdatedAt = DateTime.UtcNow;
                 user.Data.Email = request.Email;
                 user.Data.Name = request.Name;
+                user.Data.Phone = request.Phone;
 
                 ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
                 if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");

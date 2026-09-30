@@ -40,7 +40,13 @@ namespace api_finances.src.Repository
 
                     new("$addFields", new BsonDocument
                     {
-                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
+                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
+                            })
+                        }
                     }),
 
                     MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
@@ -54,7 +60,17 @@ namespace api_finances.src.Repository
                         {"type", 1},
                         {"active", 1},
                         {"createdAt", 1},
-                        {"categoryName", MongoUtil.First("_categories.name")},
+                        {"categoryId", 1},
+                        {"bankId", 1},
+                        {"destinationBankId", 1},
+                        {"repeat", 1},
+                        { "categoryName", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", "Transferência" },
+                                { "else", MongoUtil.First("_categories.name") }
+                            })
+                        }
                     }),
                     new("$sort", pagination.PipelineSort),
                 };

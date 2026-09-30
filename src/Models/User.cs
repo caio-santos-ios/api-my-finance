@@ -36,6 +36,9 @@ namespace api_finances.src.Models
         [BsonElement("photo")]
         public string Photo { get; set; } = string.Empty;
 
+        [BsonElement("phone")]
+        public string Phone { get; set; } = string.Empty;
+
         [BsonElement("tokenFCM")]
         public string TokenFCM { get; set; } = string.Empty;
 
