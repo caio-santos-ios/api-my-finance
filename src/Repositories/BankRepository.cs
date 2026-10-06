@@ -182,7 +182,7 @@ namespace api_finances.src.Repository
         }
         #endregion
         #region DELETE
-        public async Task<ResponseApi<Bank>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<Bank>> DeleteAsync(DeleteRequest request)
         {
             try
             {

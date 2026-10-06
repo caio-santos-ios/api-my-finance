@@ -7,11 +7,11 @@ namespace api_finances.src.Interfaces
 {
     public interface IImportationService
     {
-        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request);
+        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
+        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Importation?>> CreateAsync(CreateImportationRequest request);
         Task<ResponseApi<Importation?>> UpdateAsync(UpdateImportationRequest request);
-        Task<ResponseApi<Importation>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Importation>> DeleteAsync(DeleteRequest request);
     }
 }

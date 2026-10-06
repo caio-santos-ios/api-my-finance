@@ -1,9 +1,12 @@
-using api_finances.src.Models.Base;
+using api_finances.src.Models;
 
 namespace api_finances.src.Interfaces
 {
     public interface IDashboardRepository
     {
-        Task<ResponseApi<dynamic>> GetAllAsync(string userId, DateTime startDate, DateTime endDate);
+        Task<List<Dashboard>> GetAllAsync(string userId);
+        Task<Dashboard?> GetByIdAsync(string id);
+        Task<Dashboard?> CreateAsync(Dashboard entity);
+        Task<Dashboard?> UpdateAsync(Dashboard entity);
     }
 }

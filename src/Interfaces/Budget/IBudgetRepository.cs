@@ -14,6 +14,6 @@ namespace api_finances.src.Interfaces
         Task<int> GetCountDocumentsAsync(PaginationUtil<Budget> pagination);
         Task<ResponseApi<Budget?>> CreateAsync(Budget budget);
         Task<ResponseApi<Budget?>> UpdateAsync(Budget budget);
-        Task<ResponseApi<Budget>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Budget>> DeleteAsync(DeleteRequest request);
     }
 }

@@ -7,11 +7,11 @@ namespace api_finances.src.Interfaces
 {
     public interface IAttachmentService
     {
-        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request);
+        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
+        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Attachment?>> CreateAsync(CreateAttachmentRequest request);
         Task<ResponseApi<Attachment?>> UpdateAsync(UpdateAttachmentRequest request);
-        Task<ResponseApi<Attachment>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Attachment>> DeleteAsync(DeleteRequest request);
     }
 }

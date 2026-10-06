@@ -15,7 +15,7 @@ namespace api_finances.src.Services
     ) : IUserService
     {
         #region READ
-        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request)
+        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
         {
             try
             {
@@ -221,7 +221,7 @@ namespace api_finances.src.Services
         #endregion
 
         #region DELETE
-        public async Task<ResponseApi<User>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<User>> DeleteAsync(DeleteRequest request)
         {
             try
             {

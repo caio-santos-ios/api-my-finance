@@ -8,28 +8,25 @@ namespace api_finances.src.Repository
 {
     public class DashboardRepository(AppDbContext context) : IDashboardRepository
     {
-        public async Task<ResponseApi<dynamic>> GetAllAsync(string userId, DateTime startDate, DateTime endDate)
+        public async Task<List<Dashboard>> GetAllAsync(string userId)
         {
-            try
-            {
-                List<Operation> operations = await context.Operations.Find(x => !x.Deleted && x.CreatedBy == userId && x.CreatedAt.Date >= startDate.Date.AddDays(-1) && x.CreatedAt.Date < endDate.Date.AddDays(1)).ToListAsync();
-                decimal totalAccountIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value);
-                decimal totalAccountExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value);
-
-                dynamic data = new
-                {
-                    totalAccount = totalAccountIncome - totalAccountExpense,
-                    totalAccountIncome,
-                    totalAccountExpense,
-                    operations
-                };
-
-                return new(data);
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            List<Dashboard> entities = await context.Dashboards.Find(x => !x.Deleted && x.Active && x.CreatedBy == userId).ToListAsync();
+            return entities;
+        }
+        public async Task<Dashboard?> GetByIdAsync(string id)
+        {
+            Dashboard? entity = await context.Dashboards.Find(x => !x.Deleted && x.Id == id).FirstOrDefaultAsync();
+            return entity;
+        }
+        public async Task<Dashboard?> CreateAsync(Dashboard entity)
+        {
+            await context.Dashboards.InsertOneAsync(entity);
+            return entity;
+        }
+        public async Task<Dashboard?> UpdateAsync(Dashboard entity)
+        {
+            await context.Dashboards.ReplaceOneAsync(x => x.Id == entity.Id, entity);
+            return entity;
         }
     }
 }

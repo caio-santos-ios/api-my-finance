@@ -15,7 +15,7 @@ namespace api_finances.src.Services
     ) : IAttachmentService
     {
         #region READ
-        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request)
+        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
         {
             try
             {
@@ -30,7 +30,7 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request)
+        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request)
         {
             try
             {
@@ -106,7 +106,7 @@ namespace api_finances.src.Services
         #endregion
 
         #region DELETE
-        public async Task<ResponseApi<Attachment>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<Attachment>> DeleteAsync(DeleteRequest request)
         {
             try
             {

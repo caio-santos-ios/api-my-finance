@@ -13,7 +13,7 @@ namespace api_finances.src.Services
     ) : IBudgetService
     {
         #region READ
-        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request)
+        public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace api_finances.src.Services
             }
         }
 
-        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request)
+        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request)
         {
             try
             {
@@ -128,7 +128,7 @@ namespace api_finances.src.Services
         #endregion
 
         #region DELETE
-        public async Task<ResponseApi<Budget>> DeleteAsync(DeleteDTO request)
+        public async Task<ResponseApi<Budget>> DeleteAsync(DeleteRequest request)
         {
             try
             {

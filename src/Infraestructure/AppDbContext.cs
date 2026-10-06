@@ -8,7 +8,7 @@ namespace api_finances.src.Infraestructure
         public static string? ConnectionString { get; set; }
         public static string? DatabaseName { get; set; }
         public static bool IsSSL { get; set; }
-        private IMongoDatabase Database { get; }
+        public IMongoDatabase Database { get; }
 
         public AppDbContext()
         {
@@ -39,6 +39,7 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<Attachment> Attachments => Database.GetCollection<Attachment>("attachments");
         public IMongoCollection<Importation> Importations => Database.GetCollection<Importation>("importations");
         public IMongoCollection<Budget> Budgets => Database.GetCollection<Budget>("budgets");
+        public IMongoCollection<Dashboard> Dashboards => Database.GetCollection<Dashboard>("dashboards");
     }
 }
 

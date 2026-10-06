@@ -4,6 +4,7 @@ using api_finances.src.Services;
 using api_finances.src.Infraestructure;
 using api_finances.src.Helpers;
 using CloudinaryDotNet;
+using MongoDB.Driver;
 
 namespace api_finances.src.Configuration
 {
@@ -20,6 +21,7 @@ namespace api_finances.src.Configuration
         public static void AddContext(this WebApplicationBuilder builder)
         {
             builder.Services.AddSingleton<AppDbContext>();
+            builder.Services.AddSingleton<IMongoDatabase>(sp => sp.GetRequiredService<AppDbContext>().Database);
         }
 
         public static void AddBuilderHelpers(this WebApplicationBuilder builder)
@@ -31,22 +33,22 @@ namespace api_finances.src.Configuration
         public static void AddBuilderServices(this WebApplicationBuilder builder)
         {
             builder.Services.AddTransient<IAuthService, AuthService>();
-            
+
             builder.Services.AddTransient<IUserService, UserService>();
             builder.Services.AddTransient<IUserRepository, UserRepository>();
 
             builder.Services.AddTransient<ICategoryService, CategoryService>();
             builder.Services.AddTransient<ICategoryRepository, CategoryRepository>();
-            
+
             builder.Services.AddTransient<IDashboardService, DashboardService>();
             builder.Services.AddTransient<IDashboardRepository, DashboardRepository>();
-            
+
             builder.Services.AddTransient<IOperationService, OperationService>();
             builder.Services.AddTransient<IOperationRepository, OperationRepository>();
-            
+
             builder.Services.AddTransient<IBankService, BankService>();
             builder.Services.AddTransient<IBankRepository, BankRepository>();
-            
+
             builder.Services.AddTransient<IAttachmentService, AttachmentService>();
             builder.Services.AddTransient<IAttachmentRepository, AttachmentRepository>();
 
@@ -55,7 +57,6 @@ namespace api_finances.src.Configuration
 
             builder.Services.AddTransient<IBudgetService, BudgetService>();
             builder.Services.AddTransient<IBudgetRepository, BudgetRepository>();
-
 
             Account account = new(
                 Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),

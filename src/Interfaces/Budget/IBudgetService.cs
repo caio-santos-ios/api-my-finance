@@ -7,11 +7,11 @@ namespace api_finances.src.Interfaces
 {
     public interface IBudgetService
     {
-        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request);
+        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
+        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Budget?>> CreateAsync(CreateBudgetRequest request);
         Task<ResponseApi<Budget?>> UpdateAsync(UpdateBudgetRequest request);
-        Task<ResponseApi<Budget>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Budget>> DeleteAsync(DeleteRequest request);
     }
 }

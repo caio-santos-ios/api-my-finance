@@ -14,6 +14,6 @@ namespace api_finances.src.Interfaces
         Task<int> GetCountDocumentsAsync(PaginationUtil<api_finances.src.Models.Category> pagination);
         Task<ResponseApi<api_finances.src.Models.Category?>> CreateAsync(api_finances.src.Models.Category user);
         Task<ResponseApi<api_finances.src.Models.Category?>> UpdateAsync(api_finances.src.Models.Category request);
-        Task<ResponseApi<api_finances.src.Models.Category>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<api_finances.src.Models.Category>> DeleteAsync(DeleteRequest request);
     }
 }

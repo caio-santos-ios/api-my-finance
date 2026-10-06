@@ -16,6 +16,6 @@ namespace api_finances.src.Interfaces
         Task<int> GetCountDocumentsAsync(PaginationUtil<Operation> pagination);
         Task<ResponseApi<Operation?>> CreateAsync(Operation entity);
         Task<ResponseApi<Operation?>> UpdateAsync(Operation request);
-        Task<ResponseApi<Operation>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Operation>> DeleteAsync(DeleteRequest request);
     }
 }

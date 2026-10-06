@@ -1,8 +1,8 @@
 namespace api_finances.src.Shared.DTOs
 {
-    public class GetAllDTO
+    public class GetAllRequest
     {
-        public GetAllDTO(IQueryCollection queries)
+        public GetAllRequest(IQueryCollection queries)
         {
             foreach (var query in queries)
             { 

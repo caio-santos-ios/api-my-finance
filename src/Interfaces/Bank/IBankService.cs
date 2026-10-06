@@ -7,11 +7,11 @@ namespace api_finances.src.Interfaces
 {
     public interface IBankService
     {
-        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllDTO request);
+        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
+        Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<Bank?>> CreateAsync(CreateBankRequest request);
         Task<ResponseApi<Bank?>> UpdateAsync(UpdateBankRequest request);
-        Task<ResponseApi<Bank>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<Bank>> DeleteAsync(DeleteRequest request);
     }
 }

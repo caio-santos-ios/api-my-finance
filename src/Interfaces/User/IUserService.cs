@@ -9,7 +9,7 @@ namespace api_finances.src.Interfaces
 {
     public interface IUserService
     {
-        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllDTO request);
+        Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<List<User>>> GetNotByIdAsync(string id);
         Task<ResponseApi<User?>> CreateAsync(CreateUserDTO user);
@@ -18,6 +18,6 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<dynamic?>> UpdateFCMAsync(UpdateFCMUserDTO request);
         Task<ResponseApi<string>> ProfilePhotoAsync(ProfilePhotoDTO request);
         Task<ResponseApi<string>> RemoveProfilePhotoAsync(ProfilePhotoDTO request);
-        Task<ResponseApi<User>> DeleteAsync(DeleteDTO request);
+        Task<ResponseApi<User>> DeleteAsync(DeleteRequest request);
     }
 }
