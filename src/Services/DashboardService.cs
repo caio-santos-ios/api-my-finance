@@ -2,6 +2,7 @@ using api_finances.src.Interfaces;
 using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests.Dashboard;
+using api_finances.src.Shared.DTOs;
 using api_finances.src.Utils;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -9,7 +10,8 @@ using MongoDB.Driver;
 namespace api_finances.src.Services
 {
     public record DashboardDataResponse(
-        string Id, string Name, string Type, List<object?> Data, string? Error);
+    string Id, string Name, string Type, string? CardClass,
+    Dictionary<string, string>? Formats, List<object?> Data, string? Error);
 
     public class DashboardService(
         IDashboardRepository repository,
@@ -23,6 +25,7 @@ namespace api_finances.src.Services
 
         private static readonly HashSet<string> _allowedCollections = ["categories", "operations"];
 
+        #region READ
         public async Task<ResponseApi<dynamic>> GetAllAsync(string userId, DateTime startDate, DateTime endDate)
         {
             try
@@ -31,7 +34,9 @@ namespace api_finances.src.Services
 
                 var parameters = new Dictionary<string, BsonValue>
                 {
-                    ["@userId"] = userId
+                    ["@userId"] = userId,
+                    ["@startDate"] = new BsonDateTime(startDate.ToUniversalTime()),
+                    ["@endDate"] = new BsonDateTime(endDate.ToUniversalTime())
                 };
 
                 var tasks = dashboards.Select(async d =>
@@ -40,11 +45,14 @@ namespace api_finances.src.Services
                     {
                         var rows = await ExecuteAsync(d, parameters);
                         return new DashboardDataResponse(
-                            d.Id!, d.Name, d.Type, rows.Select(ToPlain).ToList(), null);
+                            d.Id!, d.Name, d.Type, d.CardClass, d.Formats,
+                            rows.Select(ToPlain).ToList(), null);
                     }
                     catch (Exception ex)
                     {
-                        return new DashboardDataResponse(d.Id!, d.Name, d.Type, [], ex.Message);
+                        return new DashboardDataResponse(
+                            d.Id!, d.Name, d.Type, d.CardClass, d.Formats,
+                            [], ex.Message);
                     }
                 });
 
@@ -57,14 +65,16 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
+        #endregion
 
+        #region CREATE
         public async Task<ResponseApi<Dashboard?>> CreateAsync(CreateDashboardRequest request)
         {
             try
             {
-                Dashboard operation = ObjectMapper.Map<CreateDashboardRequest, Dashboard>(request);
+                Dashboard dashboard = ObjectMapper.Map<CreateDashboardRequest, Dashboard>(request);
 
-                Dashboard? response = await repository.CreateAsync(operation);
+                Dashboard? response = await repository.CreateAsync(dashboard);
                 if (response is null) return new(null, 400, "Falha ao criar dashboard.");
 
                 return new(response, 201, "Dashboard criado com sucesso.");
@@ -74,6 +84,9 @@ namespace api_finances.src.Services
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
             }
         }
+        #endregion
+
+        #region UPDATE
         public async Task<ResponseApi<Dashboard?>> UpdateAsync(UpdateDashboardRequest request)
         {
             try
@@ -81,9 +94,9 @@ namespace api_finances.src.Services
                 Dashboard? existed = await repository.GetByIdAsync(request.Id);
                 if (existed is null) return new(null, 404, "Dashboard não encontrado.");
 
-                Dashboard operation = ObjectMapper.Map<UpdateDashboardRequest, Dashboard>(request);
+                Dashboard dashboard = ObjectMapper.Map<UpdateDashboardRequest, Dashboard>(request);
 
-                Dashboard? response = await repository.UpdateAsync(operation);
+                Dashboard? response = await repository.UpdateAsync(dashboard);
                 if (response is null) return new(null, 400, "Falha ao atualizar dashboard.");
 
                 return new(response, 200, "Dashboard atualizado com sucesso.");
@@ -93,6 +106,30 @@ namespace api_finances.src.Services
                 return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
             }
         }
+        #endregion
+        #region DELETE
+        public async Task<ResponseApi<Dashboard?>> DeleteAsync(DeleteRequest request)
+        {
+            try
+            {
+                Dashboard? dashboard = await repository.GetByIdAsync(request.Id);
+                if (dashboard is null) return new(null, 404, "Dashboard não encontrado.");
+
+                dashboard.Deleted = true;
+                dashboard.DeletedBy = request.DeletedBy;
+                dashboard.DeletedAt = DateTime.Now;
+
+                Dashboard? response = await repository.UpdateAsync(dashboard);
+                if (response is null) return new(null, 400, "Falha ao excluir dashboard.");
+
+                return new(response, 204, "Dashboard excluido com sucesso.");
+            }
+            catch
+            {
+                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+            }
+        }
+        #endregion
 
         private async Task<List<BsonDocument>> ExecuteAsync(Dashboard dashboard, Dictionary<string, BsonValue> parameters, CancellationToken ct = default)
         {

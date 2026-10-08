@@ -21,5 +21,11 @@ namespace api_finances.src.Models
 
         [BsonElement("collection")]
         public string Collection { get; set; } = string.Empty;
+
+        [BsonElement("cardClass")]
+        public string CardClass { get; set; } = string.Empty;
+
+        [BsonElement("formats")]
+        public Dictionary<string, string>? Formats { get; set; }
     }
 }

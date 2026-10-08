@@ -12,7 +12,7 @@ namespace api_finances.src.Controllers
     {
 
         [HttpPost("register")]
-        public async Task<IActionResult> Create([FromBody] CreateUserDTO request)
+        public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
         {
             if (request == null) return BadRequest("Dados inválidos.");
 

@@ -59,7 +59,7 @@ namespace api_finances.src.Services
         #endregion
 
         #region CREATE
-        public async Task<ResponseApi<User?>> CreateAsync(CreateUserDTO request)
+        public async Task<ResponseApi<User?>> CreateAsync(CreateUserRequest request)
         {
             try
             {

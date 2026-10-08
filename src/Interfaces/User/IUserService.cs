@@ -12,7 +12,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<List<User>>> GetNotByIdAsync(string id);
-        Task<ResponseApi<User?>> CreateAsync(CreateUserDTO user);
+        Task<ResponseApi<User?>> CreateAsync(CreateUserRequest user);
         Task<ResponseApi<User?>> UpdateAsync(UpdateUserDTO user);
         Task<ResponseApi<User?>> UpdateConfirmAccountAsync(UpdateConfirmAccountDTO request);
         Task<ResponseApi<dynamic?>> UpdateFCMAsync(UpdateFCMUserDTO request);

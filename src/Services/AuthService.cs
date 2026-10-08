@@ -17,7 +17,7 @@ namespace api_finances.src.Services
     ) : IAuthService
     {
         #region REGISTER
-        public async Task<ResponseApi<dynamic?>> CreateAsync(CreateUserDTO request)
+        public async Task<ResponseApi<dynamic?>> CreateAsync(CreateUserRequest request)
         {
             try
             {

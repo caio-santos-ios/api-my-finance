@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace api_finances.src.Requests
 {
-    public class CreateUserDTO : Request
+    public class CreateUserRequest : Request
     {
         [Required(ErrorMessage = "O Nome é obrigatório.")]
         public string Name { get; set; } = string.Empty;
@@ -12,6 +12,7 @@ namespace api_finances.src.Requests
 
         [Required(ErrorMessage = "A Senha é obrigatória.")]
         public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
         public bool Admin { get; set; } = false;
     }
 }
