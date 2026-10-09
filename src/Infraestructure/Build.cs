@@ -5,6 +5,10 @@ using api_finances.src.Infraestructure;
 using api_finances.src.Helpers;
 using CloudinaryDotNet;
 using MongoDB.Driver;
+using api_finances.src.Interfaces;
+using api_finances.src.Services;
+using api_finances.src.Repository;
+using api_finances.src.Works;
 
 namespace api_finances.src.Configuration
 {
@@ -37,6 +41,12 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IUserService, UserService>();
             builder.Services.AddTransient<IUserRepository, UserRepository>();
 
+            builder.Services.AddTransient<IGenericTableService, GenericTableService>();
+            builder.Services.AddTransient<IGenericTableRepository, GenericTableRepository>();
+
+            builder.Services.AddTransient<IAttachmentService, AttachmentService>();
+            builder.Services.AddTransient<IAttachmentRepository, AttachmentRepository>();
+
             builder.Services.AddTransient<ICategoryService, CategoryService>();
             builder.Services.AddTransient<ICategoryRepository, CategoryRepository>();
 
@@ -49,14 +59,13 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IBankService, BankService>();
             builder.Services.AddTransient<IBankRepository, BankRepository>();
 
-            builder.Services.AddTransient<IAttachmentService, AttachmentService>();
-            builder.Services.AddTransient<IAttachmentRepository, AttachmentRepository>();
-
             builder.Services.AddTransient<IImportationService, ImportationService>();
             builder.Services.AddTransient<IImportationRepository, ImportationRepository>();
 
             builder.Services.AddTransient<IBudgetService, BudgetService>();
             builder.Services.AddTransient<IBudgetRepository, BudgetRepository>();
+
+            builder.Services.AddHostedService<InstallCollectionsUserWork>();
 
             Account account = new(
                 Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),

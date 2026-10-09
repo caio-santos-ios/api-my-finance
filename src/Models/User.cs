@@ -42,6 +42,9 @@ namespace api_finances.src.Models
         [BsonElement("tokenFCM")]
         public string TokenFCM { get; set; } = string.Empty;
 
+        [BsonElement("installCollections")]
+        public bool InstallCollections { get; set; } = false;
+
         [BsonElement("devices")]
         public List<UserDevice> Devices { get; set; } = [];
 
