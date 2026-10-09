@@ -22,5 +22,6 @@ namespace api_finances.src.Requests
         public string Origin { get; set; } = string.Empty;
         public string OriginId { get; set; } = string.Empty;
         public DateTime Date { get; set; } = DateTime.UtcNow;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

@@ -146,13 +146,13 @@ namespace api_finances.src.Repository
                         {"_id", new ObjectId(id)},
                         {"deleted", false}
                     }),
-
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")}
+                    }),
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
-                        {"name", 1},
-                        {"code", 1}
                     }),
                 ];
 

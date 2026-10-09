@@ -44,7 +44,8 @@ namespace api_finances.src.Repository
                         {"id", new BsonDocument("$toString", "$_id")},
                         {"name", 1},
                         {"code", 1},
-                        {"active", 1}
+                        {"active", 1},
+                        {"createdAt", 1}
                     }),
                     new("$sort", pagination.PipelineSort),
                 };

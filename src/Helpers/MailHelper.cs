@@ -1,6 +1,3 @@
-using MailKit.Net.Smtp;
-using MimeKit;
-
 namespace api_finances.src.Helpers
 {
     public class MailHelper(HttpClient http)
@@ -37,6 +34,22 @@ namespace api_finances.src.Helpers
             {
                 return ex.Message;
             }
+        }
+
+        public async Task<string> SendAccountConfirmationMail(string recipient, string name, string code)
+        {
+            string nameClinic = "Minhas Finanças";
+            string subject = $"Confirmação de Cadastro — {nameClinic}";
+            string body = EmailTemplates.GetAccountConfirmationTemplate(name, code);
+            return await SendMail(recipient, subject, body);
+        }
+
+        public async Task<string> SendPasswordResetMail(string recipient, string name, string code)
+        {
+            string nameClinic = "Minhas Finanças";
+            string subject = $"Redefinição de Senha — {nameClinic}";
+            string body = EmailTemplates.GetPasswordResetTemplate(name, code);
+            return await SendMail(recipient, subject, body);
         }
     }
 }

@@ -4,6 +4,7 @@ using api_finances.src.Models.Base;
 using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
+using api_finances.src.Utils;
 
 namespace api_finances.src.Services
 {
@@ -63,23 +64,7 @@ namespace api_finances.src.Services
         {
             try
             {
-                string budgetName = request.Name;
-                if (string.IsNullOrWhiteSpace(budgetName))
-                {
-                    ResponseApi<Category?> category = await categoryRepository.GetByIdAsync(request.CategoryId);
-                    budgetName = category?.Data?.Name ?? "Orçamento";
-                }
-
-                Budget budget = new()
-                {
-                    Name = budgetName,
-                    CategoryId = request.CategoryId,
-                    Limit = request.Limit,
-                    ReceiveAlert = request.ReceiveAlert,
-                    AlertPercentage = request.AlertPercentage,
-                    CreatedBy = request.CreatedBy
-                };
-
+                Budget budget = ObjectMapper.Map<CreateBudgetRequest, Budget>(request);
                 ResponseApi<Budget?> response = await repository.CreateAsync(budget);
                 if (response.Data is null) return new(null, 400, "Falha ao criar orçamento.");
 

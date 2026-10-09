@@ -10,8 +10,7 @@ namespace api_finances.src.Services
 {
     public class OperationService(
         IOperationRepository repository,
-        IAttachmentRepository attachmentRepository,
-        IBankRepository bankRepository
+        IAttachmentRepository attachmentRepository
     ) : IOperationService
     {
         #region READ
