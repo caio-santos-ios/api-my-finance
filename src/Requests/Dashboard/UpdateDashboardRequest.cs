@@ -6,7 +6,7 @@ namespace api_finances.src.Requests.Dashboard
     {
         [Required(ErrorMessage = "O Id é obrigatório.")]
         public string Id { get; set; } = string.Empty;
-        
+
         [Required(ErrorMessage = "O Nome é obrigatório.")]
         public string Name { get; set; } = string.Empty;
 
@@ -18,6 +18,7 @@ namespace api_finances.src.Requests.Dashboard
 
         [Required(ErrorMessage = "A Query é obrigatória.")]
         public string Query { get; set; } = string.Empty;
+        public int Sequence { get; set; }
         public string CardClass { get; set; } = string.Empty;
     }
 }

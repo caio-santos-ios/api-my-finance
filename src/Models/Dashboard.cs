@@ -24,6 +24,9 @@ namespace api_finances.src.Models
 
         [BsonElement("cardClass")]
         public string CardClass { get; set; } = string.Empty;
+        
+        [BsonElement("sequence")]
+        public int Sequence { get; set; }
 
         [BsonElement("formats")]
         public Dictionary<string, string>? Formats { get; set; }
