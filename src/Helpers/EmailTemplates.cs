@@ -50,7 +50,7 @@ namespace api_finances.src.Helpers
     public static string GetPasswordResetTemplate(string? name, string code)
     {
       string greeting = !string.IsNullOrWhiteSpace(name) ? $"Ol&#225;, <strong>{System.Net.WebUtility.HtmlEncode(name)}</strong>!" : "Ol&#225;!";
-      string link = $"{GetUiUrl()}/confirmation/{code}";
+      string link = $"{GetUiUrl()}/auth/new-password/{code}";
       string clinicName = "Minhas Finanças";
 
       return BuildTemplate(

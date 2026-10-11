@@ -171,6 +171,8 @@ namespace api_finances.src.Services
                 existed.Collection = request.Collection;
                 existed.CardClass = request.CardClass;
                 existed.Sequence = request.Sequence;
+                existed.Query = request.Query;
+                existed.Formats = request.Formats;
 
                 Dashboard? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar dashboard.");
