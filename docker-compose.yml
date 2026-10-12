@@ -1,0 +1,40 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-finances
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-admin123}
+      MONGO_INITDB_DATABASE: ${DATABASE_NAME:-finances}
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - finances_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api-finances
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    ports:
+      - "5140:5140"
+    env_file:
+      - .env
+    volumes:
+      - api_uploads:/app/wwwroot/uploads
+    networks:
+      - finances_network
+
+volumes:
+  mongo_data:
+  api_uploads:
+
+networks:
+  finances_network:
+    driver: bridge

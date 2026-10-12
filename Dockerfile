@@ -11,5 +11,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:5140
+EXPOSE 5140
 ENTRYPOINT ["dotnet", "api-finances.dll"]
