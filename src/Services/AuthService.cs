@@ -105,6 +105,48 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
             }
         }
+        public async Task<ResponseApi<dynamic?>> RefreshTokenAsync(RefreshTokenRequest request)
+        {
+            try
+            {
+                TokenValidationParameters parameters = new()
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = Environment.GetEnvironmentVariable("ISSUER"),
+                    ValidateAudience = true,
+                    ValidAudience = Environment.GetEnvironmentVariable("AUDIENCE"),
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("SECRET_KEY") ?? "")),
+                    ClockSkew = TimeSpan.Zero,
+                };
+
+                new JwtSecurityTokenHandler().ValidateToken(request.RefreshToken, parameters, out SecurityToken validated);
+
+                JwtSecurityToken jwt = (JwtSecurityToken)validated;
+
+                if (jwt.Claims.FirstOrDefault(c => c.Type == "type")?.Value != "refresh") return new(null, 401, "Refresh token inválido.");
+
+                string email = jwt.Claims.First(c => c.Type == "email").Value;
+
+                ResponseApi<User?> response = await userRepository.GetByEmailAsync(email);
+                if (response.Data is null || response.Data.Blocked) return new(null, 401, "Usuário inválido.");
+
+                return new(new
+                {
+                    Token = GenerateJwtToken(response.Data),
+                    RefreshToken = GenerateJwtToken(response.Data, true),
+                    response.Data.Photo,
+                    response.Data.Name,
+                    admin = response.Data.Admin.ToString()
+                }, 200, "Token renovado com sucesso.");
+            }
+            catch(Exception ex)
+            {
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
+            }
+        }
         #endregion
         #region RESET PASSWORD
         public async Task<ResponseApi<dynamic?>> ForgotPasswordAsync(ForgotPasswordRequest request)

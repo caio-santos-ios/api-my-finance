@@ -31,6 +31,15 @@ namespace api_finances.src.Controllers
             ResponseApi<dynamic?> response = await service.LoginAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
+        
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+        {
+            if (request == null) return BadRequest("Dados inválidos.");
+
+            ResponseApi<dynamic?> response = await service.RefreshTokenAsync(request);
+            return StatusCode(response.StatusCode, response.Result);
+        }
 
         [HttpPost("new-code")]
         public async Task<IActionResult> NewCode([FromBody] NewCodeRequest request)

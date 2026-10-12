@@ -7,6 +7,7 @@ namespace api_finances.src.Interfaces
     {
         Task<ResponseApi<dynamic?>> CreateAsync(CreateUserRequest request);
         Task<ResponseApi<dynamic?>> LoginAsync(LoginRequest request);
+        Task<ResponseApi<dynamic?>> RefreshTokenAsync(RefreshTokenRequest request);
         Task<ResponseApi<dynamic?>> NewCodeAsync(NewCodeRequest request);
         Task<ResponseApi<dynamic?>> ForgotPasswordAsync(ForgotPasswordRequest request);
         Task<ResponseApi<dynamic?>> ResetPasswordAsync(ResetPasswordRequest request);
