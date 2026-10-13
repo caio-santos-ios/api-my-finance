@@ -137,8 +137,27 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        #endregion
+        public async Task<ResponseApi<dynamic?>> GetDashAppAsync(DateTime startDate, DateTime endDate)
+        {
+            try
+            {
+                List<Operation> operations = await repository.GetDashAppAsync(startDate.AddDays(-1), endDate.AddDays(1));
 
+                dynamic data = new
+                {
+                    totalAccount = operations.Sum(x => x.Value),
+                    totalAccountIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value),
+                    totalAccountExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value)
+                };
+
+                return new(data, 200, "Dashboard encontrado");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
+            }
+        }
+        #endregion
         #region CREATE
         public async Task<ResponseApi<Dashboard?>> CreateAsync(CreateDashboardRequest request)
         {
@@ -157,7 +176,6 @@ namespace api_finances.src.Services
             }
         }
         #endregion
-
         #region UPDATE
         public async Task<ResponseApi<Dashboard?>> UpdateAsync(UpdateDashboardRequest request)
         {
@@ -208,7 +226,6 @@ namespace api_finances.src.Services
             }
         }
         #endregion
-
         private async Task<List<BsonDocument>> ExecuteAsync(Dashboard dashboard, Dictionary<string, BsonValue> parameters, CancellationToken ct = default)
         {
             if (!_allowedCollections.Contains(dashboard.Collection))
@@ -228,7 +245,6 @@ namespace api_finances.src.Services
                 .Aggregate(pipeline, options)
                 .ToListAsync(ct);
         }
-
         private static BsonValue ApplyParameters(BsonValue value, Dictionary<string, BsonValue> parameters)
         {
             switch (value)
@@ -249,7 +265,6 @@ namespace api_finances.src.Services
                     return value;
             }
         }
-
         private static void Validate(BsonValue value)
         {
             switch (value)
@@ -268,7 +283,6 @@ namespace api_finances.src.Services
                     break;
             }
         }
-
         private static object? ToPlain(BsonValue v) => v.BsonType switch
         {
             BsonType.Document => v.AsBsonDocument.ToDictionary(e => e.Name, e => ToPlain(e.Value)),
@@ -284,13 +298,11 @@ namespace api_finances.src.Services
             BsonType.Null => null,
             _ => v.ToString()
         };
-
         private static BsonArray ParsePipeline(string json)
         {
             var doc = BsonDocument.Parse($"{{ \"stages\": {json} }}");
             return doc["stages"].AsBsonArray;
         }
-
         private static BsonValue ParseParameter(string value)
         {
             if (bool.TryParse(value, out var b)) return b;

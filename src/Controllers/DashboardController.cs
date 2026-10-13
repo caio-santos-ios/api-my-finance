@@ -50,6 +50,13 @@ namespace api_finances.src.Controllers
             return StatusCode(response.StatusCode, response.Result);
         }
 
+        [HttpGet("app")]
+        public async Task<IActionResult> GetDashAppAsync([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        {
+            ResponseApi<dynamic?> response = await service.GetDashAppAsync(startDate, endDate);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateDashboardRequest request)
         {
