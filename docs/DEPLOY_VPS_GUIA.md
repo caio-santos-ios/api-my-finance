@@ -1,128 +1,159 @@
-# Documentação de Deploy em VPS com Docker e CI/CD
+# Guia Definitivo de Deploy em VPS com Docker, Nginx e CI/CD
 
-Guia prático e definitivo para configuração de infraestrutura, publicação de múltiplas APIs, banco de dados isolado e automação contínua via GitHub Actions.
+Este guia contém o passo a passo exato, validado na prática, para configuração da VPS, publicação de novas aplicações (.NET/Docker), múltiplos projetos independentes, banco de dados isolado, proxy reverso Nginx com SSL e automação via GitHub Actions.
 
 ---
 
 ## 1. Visão Geral da Arquitetura
 
-- **APIs (.NET / Node / Python)**: Containers Docker executando em portas internas exclusivas (ex: `5140` para `my-finances`, `5141` para `camem`).
-- **Bancos de Dados (MongoDB / Postgres / MySQL)**: Containers em rede bridge isolada, sem expor portas públicas desnecessárias para a internet.
-- **Nginx (Reverse Proxy)**: Recebe requisições públicas HTTP/HTTPS (portas 80 e 443) e encaminha via `proxy_pass` para as portas internas de cada container.
-- **Certbot (Let's Encrypt)**: Emissão e renovação automática de certificados SSL gratuitos por domínio.
-- **GitHub Actions**: Pipeline SSH que atualiza o código e reinicia os containers a cada `git push origin main`.
+- **Containers Docker**: Cada projeto roda de forma isolada na sua própria rede interna e com uma porta externa exclusiva no host da VPS.
+  - Exemplo 1: `api-finances` escutando na porta `5140`.
+  - Exemplo 2: `api-camem` escutando na porta `5143`.
+- **Bancos de Dados**: MongoDB em container Docker com rede bridge interna, sem expor portas públicas para a internet (acesso externo seguro via SSH Tunnel).
+- **Nginx (Reverse Proxy)**: Recebe o tráfego HTTP/HTTPS das portas 80 e 443 e faz o encaminhamento (`proxy_pass`) para a porta interna de cada aplicação de acordo com o subdomínio/domínio.
+- **Certbot (Let's Encrypt)**: Certificados SSL individuais emitidos para cada domínio/subdomínio.
+- **GitHub Actions**: Pipeline contínua via SSH com o usuário `deployer`.
 
 ---
 
-## 2. Preparação do Servidor (VPS)
+## 2. Preparação Única do Servidor (Executar como `root`)
 
-### 2.1 Conexão Inicial e Usuários (`root` vs `deployer`)
-Para administrar o servidor (instalar pacotes, configurar Nginx, certificados), utilize o usuário `root`.
-Para executar deploys de aplicações, repositórios Git e containers Docker, utilize o usuário `deployer`.
+Ao receber a VPS ou preparar o ambiente, execute os comandos abaixo diretamente como **`root`**:
 
+### 2.1 Acessar a VPS como root
 ```bash
-# Conectar como root a partir da sua máquina local:
 ssh root@191.252.191.227
-
-# Alternar do root para o deployer:
-su - deployer
-
-# Sair do deployer e voltar para o root:
-exit
 ```
 
----
+### 2.2 Criar o Usuário `deployer` com Permissões de Docker e Sudo sem Senha
+> **Por que configurar sudo sem senha?** Para que o usuário `deployer` consiga gerenciar arquivos de configuração e comandos administrativos sem travar pedindo `[sudo] password for deployer`.
 
-### 2.2 Criar o Usuário `deployer` e Conceder Permissões
-Execute como **`root`**:
 ```bash
-# 1. Criar o usuário caso não exista:
+# 1. Criar o usuário:
 adduser --disabled-password --gecos "" deployer
 
-# 2. Adicionar ao grupo do Docker:
+# 2. Adicionar ao grupo docker:
 usermod -aG docker deployer
 
-# 3. Configurar sudo sem senha (IMPORTANTE para evitar erros de senha ao editar configurações do sistema):
+# 3. Conceder permissão sudo NOPASSWD:
 echo "deployer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deployer
 chmod 440 /etc/sudoers.d/deployer
 ```
 
----
+### 2.3 Criar a Estrutura de Pastas de Projetos
+> **Regra Obrigatória:** Nunca clone repositórios dentro de `/root`. Todos os projetos devem ficar em `/home/deployer/www/projects`.
 
-### 2.3 Estrutura de Pastas e Permissões
-Execute como **`root`**:
 ```bash
 mkdir -p /home/deployer/www/projects
 chown -R deployer:deployer /home/deployer/www
 chmod -R 755 /home/deployer/www
 ```
 
-> **Atenção:** Nunca clone projetos dentro de `/root/www` ou tente mover arquivos de `/root` com o usuário `deployer`, pois ocorrerá erro de `Permission denied`. Sempre clone diretamente em `/home/deployer/www/projects/<nome-do-projeto>`.
-
----
-
-### 2.4 Gerar Chave SSH para o GitHub Actions
-Execute como **`deployer`** (`su - deployer`):
+### 2.4 Gerar Chave SSH para GitHub Actions
 ```bash
+su - deployer
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/id_ed25519 -N ""
 cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 
-# Exibir a chave privada para copiar:
+# Exibir a chave privada para copiar e colar no GitHub Secrets:
 cat ~/.ssh/id_ed25519
 ```
-> Copie o conteúdo completo da chave privada (desde `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----`) para cadastrar no GitHub Secrets (`VPS_SSH_KEY`).
+> Copie todo o conteúdo gerado (de `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----`).
 
 ---
 
-## 3. Publicando Múltiplos Projetos (Ex: `api-finances` e `api-camem`)
+## 3. Publicando um Novo Projeto (Exemplo Completo: `api-camem`)
 
-Cada novo projeto deve ter:
-1. Sua própria pasta em `/home/deployer/www/projects/<projeto>`.
-2. Sua própria porta externa mapeada no `docker-compose.yml` (sem conflitar com outras).
-3. Seu próprio arquivo de configuração no Nginx em `/etc/nginx/sites-available/`.
+Para cada novo projeto a ser publicado, siga rigorosamente a sequência de passos abaixo:
 
-### 3.1 Exemplo: `docker-compose.yml` da API `camem`
+### Passo 1: Clonar o Projeto com o Usuário `deployer`
+```bash
+su - deployer
+cd ~/www/projects
+git clone https://github.com/seu-usuario/api-camem.git
+cd api-camem
+```
+
+### Passo 2: Configurar o `docker-compose.yml` (Porta Exclusiva)
+Cada aplicação deve possuir uma porta no host que **não esteja em uso por outro container**.
+Se a `api-finances` usa a `5140:5140`, defina uma nova porta no host para o novo projeto (ex: `5143:8080` ou `5143:5143`):
+
 ```yaml
 services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-camem
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-admin123}
+      MONGO_INITDB_DATABASE: ${DATABASE_NAME:-camem}
+    volumes:
+      - mongo_camem_data:/data/db
+    networks:
+      - camem_network
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: api-camem
     restart: unless-stopped
+    depends_on:
+      - mongodb
     ports:
-      - "5141:8080" # Porta 5141 no host (5140 já está em uso pelo my-finances)
+      - "5143:5143"
     env_file:
       - .env
     networks:
       - camem_network
+
+volumes:
+  mongo_camem_data:
 
 networks:
   camem_network:
     driver: bridge
 ```
 
+### Passo 3: Criar o Arquivo `.env` de Produção
+```bash
+nano .env
+```
+Preencha as variáveis de ambiente necessárias e salve com `Ctrl + O`, `Enter` e `Ctrl + X`.
+
+### Passo 4: Subir os Containers em Segundo Plano (`-d`)
+> **Atenção:** Sempre use a flag `-d` para rodar em modo detached (segundo plano) e não prender o terminal nos logs.
+
+```bash
+docker compose up -d --build
+```
+
+Para verificar se os containers subiram:
+```bash
+docker compose ps
+```
+
 ---
 
-## 4. Configuração do Nginx e Domínios
+## 4. Configuração do Nginx e Certificado SSL HTTPS
 
-### 4.1 Criar Configuração de Virtual Host no Nginx
-> **Erro comum:** Digitar apenas `/etc/nginx/sites-available/camem.conf` no terminal tenta executar o arquivo como um script e retorna `No such file or directory`. É obrigatório usar um editor (ex: `nano`) com privilégios de administrador (`sudo`).
+### Passo 1: Criar o Arquivo de Configuração do Virtual Host
+> **Atenção à sintaxe:** Abra o arquivo sempre utilizando um editor de texto (`sudo nano`). O `proxy_pass` deve conter obrigatoriamente `http://` completo sem espaços e terminar com `;`.
 
-Como `deployer` (com sudo) ou como `root`:
 ```bash
 sudo nano /etc/nginx/sites-available/camem.conf
 ```
 
-Cole o conteúdo ajustando `server_name` e a porta de redirecionamento (`proxy_pass`):
+Cole o conteúdo ajustando o `server_name` e a porta configurada no docker-compose:
 ```nginx
 server {
-    server_name camem.seu-dominio.com;
+    server_name camem-caio-santos-ios.duckdns.org;
 
     location / {
-        proxy_pass http://127.0.0.1:5141;
+        proxy_pass http://127.0.0.1:5143;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection keep-alive;
@@ -135,40 +166,48 @@ server {
 ```
 *(Salve com `Ctrl + O`, `Enter` e saia com `Ctrl + X`)*.
 
----
-
-### 4.2 Ativar o Site e Recarregar o Nginx
+### Passo 2: Ativar o Site e Testar o Nginx
 ```bash
-# 1. Criar link simbólico para habilitar o site:
+# 1. Criar o link simbólico em sites-enabled:
 sudo ln -s /etc/nginx/sites-available/camem.conf /etc/nginx/sites-enabled/
 
-# 2. Testar sintaxe dos arquivos do Nginx:
+# 2. Testar a sintaxe do Nginx (OBRIGATÓRIO antes de recarregar):
 sudo nginx -t
+```
+> O retorno **deve** ser:
+> `nginx: the configuration file /etc/nginx/nginx.conf syntax is ok`
+> `nginx: configuration file /etc/nginx/nginx.conf test is successful`
 
+```bash
 # 3. Recarregar o Nginx:
+sudo systemctl reload nginx
+```
+
+### Passo 3: Emitir o Certificado SSL com o Certbot
+> **Crítico:** Se tentar acessar o domínio por HTTPS sem emitir o certificado para o novo subdomínio, ocorrerá o erro `net::ERR_CERT_COMMON_NAME_INVALID` no navegador.
+
+Execute:
+```bash
+sudo certbot --nginx -d camem-caio-santos-ios.duckdns.org
+```
+- Se solicitar redirecionamento HTTP -> HTTPS, selecione a opção de redirecionar automaticamente.
+- O Certbot atualizará o arquivo do Nginx com as chaves SSL.
+- Recarregue o Nginx para aplicar:
+```bash
 sudo systemctl reload nginx
 ```
 
 ---
 
-### 4.3 Gerar Certificado SSL (HTTPS)
-```bash
-sudo certbot --nginx -d camem.seu-dominio.com
-```
+## 5. Configuração do CI/CD Contínuo (GitHub Actions)
 
----
-
-## 5. Automação de Deploy Contínuo (GitHub Actions)
-
-### 5.1 Secrets no Repositório GitHub
-Em `Settings > Secrets and variables > Actions > New repository secret`:
-- `VPS_HOST`: IP da VPS (ex: `191.252.191.227`)
+### 5.1 Cadastrar Secrets no Repositório do GitHub
+No repositório da API no GitHub (`Settings > Secrets and variables > Actions > New repository secret`):
+- `VPS_HOST`: `191.252.191.227`
 - `VPS_USER`: `deployer`
 - `VPS_SSH_KEY`: Chave privada OpenSSH gerada no Passo 2.4
 
----
-
-### 5.2 Workflow `.github/workflows/deploy.yml`
+### 5.2 Arquivo `.github/workflows/deploy.yml`
 ```yaml
 name: Deploy API to VPS
 
@@ -197,79 +236,41 @@ jobs:
 
 ---
 
-## 6. Guia de Solução de Erros Frequentes (Troubleshooting)
+## 6. Guia Prático de Troubleshooting (Erros e Soluções Reais)
 
-### Erro: `mv: cannot stat '/root/www/projects': Permission denied`
-- **Causa:** O usuário `deployer` não tem permissão para acessar a pasta `/root`.
-- **Solução:** Nunca faça clones ou operações dentro de `/root`. Crie e use exclusivamente o caminho `/home/deployer/www/projects/`.
-
----
-
-### Erro: `-bash: /etc/nginx/sites-available/camem.conf: No such file or directory`
-- **Causa:** O caminho do arquivo foi digitado diretamente no Bash sem o comando de um editor de texto.
-- **Solução:** Utilize `sudo nano /etc/nginx/sites-available/camem.conf`.
-
----
-
-### Erro: `[sudo] password for deployer: Sorry, try again.`
-- **Causa:** O usuário `deployer` não tem permissão de `sudo` sem senha ou a senha não foi informada.
-- **Solução:** No usuário `root`, execute:
-  ```bash
-  echo "deployer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deployer
-  chmod 440 /etc/sudoers.d/deployer
-  ```
-  Ou edite as configurações do Nginx diretamente logado como `root`.
+| Erro Observado | Causa Raiz | Como Resolver na Prática |
+| :--- | :--- | :--- |
+| **`-bash: /etc/nginx/...: No such file or directory`** | O caminho do arquivo foi colado direto no terminal como se fosse um executável. | Use um editor de texto: `sudo nano /etc/nginx/sites-available/nome.conf`. |
+| **`[sudo] password for deployer: Sorry, try again.`** | O usuário `deployer` não possui permissão sudo sem senha configurada. | Como `root`, execute: `echo "deployer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/deployer` com permissão `chmod 440`. |
+| **`invalid number of arguments in "proxy_pass"`** | Espaço em branco indevido na URL (ex: `http: 127.0.0.1`) ou falta de ponto e vírgula no fim. | Deixe exatamente: `proxy_pass http://127.0.0.1:PORTA;`. |
+| **`invalid URL prefix in /etc/nginx/...`** | Faltaram as duas barras no protocolo (`http:/` ou `http:` em vez de `http://`). | Corrija para `http://127.0.0.1:PORTA;` e teste com `nginx -t`. |
+| **`(failed) net::ERR_CERT_COMMON_NAME_INVALID`** | O subdomínio foi acessado via HTTPS mas o Certbot ainda não emitiu o certificado para ele. | Execute `sudo certbot --nginx -d seu-subdominio.duckdns.org` e depois `sudo systemctl reload nginx`. |
+| **Terminal preso exibindo logs após `docker compose`** | O comando foi executado sem o argumento `-d`. | Pressione `Ctrl + C` e suba com `docker compose up -d`. |
+| **`mv: cannot stat '/root/www/...': Permission denied`** | O usuário `deployer` tentou acessar arquivos dentro de `/root`. | Não clone em `/root`. Trabalhe sempre em `/home/deployer/www/projects/`. |
+| **`bind: address already in use`** | Dois containers tentando usar a mesma porta externa no host. | No `docker-compose.yml`, altere a porta mapeada à esquerda (ex: `"5143:PORTA_INTERNA"`). |
+| **`AuthenticationFailed (code 18)` no MongoDB** | Senha do `.env` alterada após o volume do MongoDB já ter sido inicializado. | Em ambiente de dev/staging, resete o volume com `docker compose down -v` e suba com `docker compose up -d`. |
 
 ---
 
-### Erro: `bind: address already in use` no Docker
-- **Causa:** Duas aplicações tentando expor a mesma porta no host da VPS (ex: dois containers usando a porta `5140`).
-- **Solução:** Altere a porta mapeada à esquerda no `docker-compose.yml` do segundo projeto:
-  ```yaml
-  ports:
-    - "5141:8080" # 5141 é a porta externa no host, 8080 é a interna do container
-  ```
-  E aponte o `proxy_pass` no arquivo do Nginx para `http://127.0.0.1:5141;`.
-
----
-
-### Erro: `AuthenticationFailed (code 18)` no MongoDB (Studio 3T ou API)
-- **Causa:** A senha do banco foi alterada no `.env` depois que o volume do MongoDB já havia sido criado pela primeira vez.
-- **Solução:**
-  1. A senha gravada no volume persistente não muda apenas alterando o `.env`.
-  2. Para resetar as credenciais (em ambiente de desenvolvimento/staging):
-     ```bash
-     docker compose down -v
-     docker compose up -d
-     ```
-  3. No Studio 3T, conecte via **SSH Tunnel**:
-     - **SSH Host:** IP da VPS | **User:** `deployer` ou `root` | **Auth:** Chave SSH ou Senha.
-     - **Server:** `localhost:27017` (ou `mongodb:27017` se o túnel apontar para o container).
-     - **Authentication:** `SCRAM-SHA-256`, User: `admin`, Database: `admin`.
-
----
-
-## 7. Comandos Úteis do Dia a Dia
+## 7. Comandos Essenciais de Referência
 
 ```bash
-# Ver status dos containers em execução
-docker compose ps
+# Alternar usuários
+su - deployer     # Muda para deployer
+exit              # Volta para root
 
-# Ver logs da API em tempo real
-docker compose logs -f api
+# Gerenciamento de containers
+docker compose ps             # Lista containers do projeto atual
+docker compose logs -f api    # Acompanha logs da API em tempo real
+docker compose up -d --build  # Recompila e sobe em segundo plano
+docker compose down           # Para os containers do projeto
 
-# Reiniciar serviços sem perda de dados
-docker compose restart
+# Gerenciamento do Nginx
+sudo nginx -t                 # Testa sintaxe (sempre execute antes de recarregar)
+sudo systemctl reload nginx   # Aplica alterações sem derrubar conexões
+sudo systemctl status nginx   # Exibe status e logs de erro do Nginx
 
-# Rebuildar imagens após alterar Dockerfile ou código
-docker compose up -d --build
-
-# Testar sintaxe do Nginx
-sudo nginx -t
-
-# Recarregar Nginx sem derrubar conexões
-sudo systemctl reload nginx
-
-# Monitorar uso de CPU e Memória da VPS
-docker stats
+# Recursos do servidor
+docker stats                  # Exibe uso de CPU e memória em tempo real
+df -h                         # Exibe espaço em disco disponível
 ```
