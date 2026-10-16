@@ -148,7 +148,7 @@ namespace api_finances.src.Services
                 decimal totalIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value);
                 decimal totalExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value);
 
-                decimal monthIncome = operationsMonth.Where(x => x.Type != "expense").Sum(x => x.Value);
+                decimal monthIncome = operationsMonth.Where(x => x.Type == "income").Sum(x => x.Value);
                 decimal monthExpense = operationsMonth.Where(x => x.Type == "expense").Sum(x => x.Value);
 
                 dynamic data = new
