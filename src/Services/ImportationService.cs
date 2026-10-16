@@ -103,7 +103,10 @@ namespace api_finances.src.Services
                 int firstColumn = range.FirstColumn().ColumnNumber();
                 int lastColumn = range.LastColumn().ColumnNumber();
                 Bank? bank = await bankRepository.GetByCodeAsync(request.Bank);
-                List<string> myTranferName = request.Name.Split(";").Select(x => x.ToUpper()).ToList();
+                List<string> myTranferName = (request.Name ?? "")
+                    .Split(";", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(x => x.ToUpper())
+                    .ToList();
 
                 switch (request.Bank)
                 {
@@ -115,27 +118,40 @@ namespace api_finances.src.Services
                             CreatedBy = request.CreatedBy,
                         });
 
-                        for (int row = 2; row < lastRow; row++)
+                        for (int row = 2; row <= lastRow; row++)
                         {
-                            string date = worksheet.Cell(row, 1).GetFormattedString();
-                            string value = worksheet.Cell(row, 2).GetFormattedString();
-                            string id = worksheet.Cell(row, 3).GetFormattedString();
-                            string description = worksheet.Cell(row, 4).GetFormattedString();
+                            string date = worksheet.Cell(row, 1).GetFormattedString().Trim();
+                            string value = worksheet.Cell(row, 2).GetFormattedString().Trim();
+                            string id = worksheet.Cell(row, 3).GetFormattedString().Trim();
+                            string description = worksheet.Cell(row, 4).GetFormattedString().Trim();
+
+                            if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(value)) continue;
 
                             Operation? existedOperation = await operationRepository.GetByOriginIdAsync(id);
                             if (existedOperation is not null) continue;
 
-                            List<string> splitDate = date.Split("/").Select(x => x).ToList();
-                            List<string> splitName = description.Split(" - ").Select(x => x).ToList();
-                            string type = splitName[0];
-                            string name = splitName[1];
+                            List<string> splitDate = date.Split(['/', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                            if (splitDate.Count < 3) continue;
 
-                            decimal cost = decimal.Parse(value, NumberStyles.Number, new CultureInfo("pt-BR"));
+                            List<string> splitName = description.Split(" - ").Select(x => x.Trim()).ToList();
+                            string type = splitName.Count > 0 ? splitName[0] : description;
+                            string name = splitName.Count > 1 ? splitName[1] : "";
+
+                            if (!worksheet.Cell(row, 2).TryGetValue<decimal>(out decimal cost))
+                            {
+                                CultureInfo culture = value.Contains(',') ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture;
+                                cost = decimal.Parse(value, NumberStyles.Any, culture);
+                            }
                             cost = Math.Abs(cost);
-                            DateTime dateTime = new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
+
+                            DateTime dateTime = splitDate[0].Length == 4
+                                ? new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]))
+                                : new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
                             Operation? operation = null;
 
-                            if (!myTranferName.Contains(name.ToUpper()) && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
+                            bool isSelfTransfer = !string.IsNullOrWhiteSpace(name) && myTranferName.Contains(name.ToUpper());
+
+                            if (!isSelfTransfer && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
                             {
                                 operation = new()
                                 {
@@ -156,7 +172,7 @@ namespace api_finances.src.Services
                             }
                             else
                             {
-                                if (!myTranferName.Contains(name.ToUpper()))
+                                if (!isSelfTransfer)
                                 {
                                     operation = new()
                                     {
@@ -192,7 +208,8 @@ namespace api_finances.src.Services
                                         UpdatedBy = request.CreatedBy
                                     };
 
-                                    Bank? existedBank = await bankRepository.GetByCodeAsync(GetCodeBank(splitName[3].ToUpper()));
+                                    string bankPart = splitName.Count > 3 ? splitName[3].ToUpper() : description.ToUpper();
+                                    Bank? existedBank = await bankRepository.GetByCodeAsync(GetCodeBank(bankPart));
                                     if (existedBank is not null)
                                     {
                                         operation.DestinationBankId = existedBank.Id;
@@ -220,24 +237,30 @@ namespace api_finances.src.Services
                             CreatedBy = request.CreatedBy,
                         });
 
-                        for (int row = 2; row < lastRow; row++)
+                        for (int row = 2; row <= lastRow; row++)
                         {
-                            string date = worksheet.Cell(row, 1).GetFormattedString();
-                            string hour = worksheet.Cell(row, 2).GetFormattedString();
-                            string type = worksheet.Cell(row, 3).GetFormattedString();
-                            string description = worksheet.Cell(row, 4).GetFormattedString();
+                            string date = worksheet.Cell(row, 1).GetFormattedString().Trim();
+                            string hour = worksheet.Cell(row, 2).GetFormattedString().Trim();
+                            string type = worksheet.Cell(row, 3).GetFormattedString().Trim();
+                            string description = worksheet.Cell(row, 4).GetFormattedString().Trim();
                             string value = Regex.Replace(worksheet.Cell(row, 5).GetFormattedString(), @"[^\d.,]", "");
+
+                            if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(value)) continue;
 
                             string id = $"{row}-{date}-{hour}-{value}";
 
                             Operation? existedOperation = await operationRepository.GetByOriginIdAsync(id);
                             if (existedOperation is not null) continue;
 
-                            List<string> splitDate = date.Split("-").Select(x => x).ToList();
+                            List<string> splitDate = date.Split(['/', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                            if (splitDate.Count < 3) continue;
 
-                            decimal cost = decimal.Parse(value, NumberStyles.Number, new CultureInfo("pt-BR"));
+                            CultureInfo picpayCulture = value.Contains(',') ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture;
+                            decimal cost = decimal.Parse(value, NumberStyles.Any, picpayCulture);
                             cost = Math.Abs(cost);
-                            DateTime dateTime = new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]));
+                            DateTime dateTime = splitDate[0].Length == 4
+                                ? new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]))
+                                : new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
                             Operation? operation = null;
 
                             if (!myTranferName.Contains(description.ToUpper()) && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
