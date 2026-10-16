@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using api_finances.src.Helpers;
 using api_finances.src.Interfaces;
@@ -123,12 +124,11 @@ namespace api_finances.src.Services
                             string date = worksheet.Cell(row, 1).GetFormattedString().Trim();
                             string value = worksheet.Cell(row, 2).GetFormattedString().Trim();
                             string id = worksheet.Cell(row, 3).GetFormattedString().Trim();
-                            string description = worksheet.Cell(row, 4).GetFormattedString().Trim();
+                            string description = NormalizeText(worksheet.Cell(row, 4).GetFormattedString().Trim());
 
                             if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(value)) continue;
 
                             Operation? existedOperation = await operationRepository.GetByOriginIdAsync(id);
-                            if (existedOperation is not null) continue;
 
                             List<string> splitDate = date.Split(['/', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                             if (splitDate.Count < 3) continue;
@@ -137,12 +137,12 @@ namespace api_finances.src.Services
                             string type = splitName.Count > 0 ? splitName[0] : description;
                             string name = splitName.Count > 1 ? splitName[1] : "";
 
-                            if (!worksheet.Cell(row, 2).TryGetValue<decimal>(out decimal cost))
+                            if (!worksheet.Cell(row, 2).TryGetValue<decimal>(out decimal rawCost))
                             {
                                 CultureInfo culture = value.Contains(',') ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture;
-                                cost = decimal.Parse(value, NumberStyles.Any, culture);
+                                rawCost = decimal.Parse(value, NumberStyles.Any, culture);
                             }
-                            cost = Math.Abs(cost);
+                            decimal cost = Math.Abs(rawCost);
 
                             DateTime dateTime = splitDate[0].Length == 4
                                 ? new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]))
@@ -150,8 +150,12 @@ namespace api_finances.src.Services
                             Operation? operation = null;
 
                             bool isSelfTransfer = !string.IsNullOrWhiteSpace(name) && myTranferName.Contains(name.ToUpper());
+                            bool isIncome = type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA")
+                                || type.ToUpper().Contains("TRANSFERENCIA RECEBIDA")
+                                || type.ToUpper().Contains("RECEBIDA")
+                                || rawCost > 0;
 
-                            if (!isSelfTransfer && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
+                            if (!isSelfTransfer && isIncome)
                             {
                                 operation = new()
                                 {
@@ -225,7 +229,21 @@ namespace api_finances.src.Services
                                 }
                             }
 
-                            if (operation is not null) await operationRepository.CreateAsync(operation);
+                            if (operation is not null)
+                            {
+                                if (existedOperation is null)
+                                {
+                                    await operationRepository.CreateAsync(operation);
+                                }
+                                else if (existedOperation.Type != operation.Type || existedOperation.Description != operation.Description)
+                                {
+                                    existedOperation.Type = operation.Type;
+                                    existedOperation.Description = operation.Description;
+                                    existedOperation.DestinationBankId = operation.DestinationBankId;
+                                    existedOperation.UpdatedAt = DateTime.UtcNow;
+                                    await operationRepository.UpdateAsync(existedOperation);
+                                }
+                            }
                         }
 
                         break;
@@ -241,8 +259,8 @@ namespace api_finances.src.Services
                         {
                             string date = worksheet.Cell(row, 1).GetFormattedString().Trim();
                             string hour = worksheet.Cell(row, 2).GetFormattedString().Trim();
-                            string type = worksheet.Cell(row, 3).GetFormattedString().Trim();
-                            string description = worksheet.Cell(row, 4).GetFormattedString().Trim();
+                            string type = NormalizeText(worksheet.Cell(row, 3).GetFormattedString().Trim());
+                            string description = NormalizeText(worksheet.Cell(row, 4).GetFormattedString().Trim());
                             string value = Regex.Replace(worksheet.Cell(row, 5).GetFormattedString(), @"[^\d.,]", "");
 
                             if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(value)) continue;
@@ -250,7 +268,6 @@ namespace api_finances.src.Services
                             string id = $"{row}-{date}-{hour}-{value}";
 
                             Operation? existedOperation = await operationRepository.GetByOriginIdAsync(id);
-                            if (existedOperation is not null) continue;
 
                             List<string> splitDate = date.Split(['/', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                             if (splitDate.Count < 3) continue;
@@ -263,7 +280,11 @@ namespace api_finances.src.Services
                                 : new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
                             Operation? operation = null;
 
-                            if (!myTranferName.Contains(description.ToUpper()) && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
+                            bool isPicpayIncome = type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA")
+                                || type.ToUpper().Contains("TRANSFERENCIA RECEBIDA")
+                                || type.ToUpper().Contains("RECEBIDA");
+
+                            if (!myTranferName.Contains(description.ToUpper()) && isPicpayIncome)
                             {
                                 operation = new()
                                 {
@@ -328,7 +349,21 @@ namespace api_finances.src.Services
                                 }
                             }
 
-                            if (operation is not null) await operationRepository.CreateAsync(operation);
+                            if (operation is not null)
+                            {
+                                if (existedOperation is null)
+                                {
+                                    await operationRepository.CreateAsync(operation);
+                                }
+                                else if (existedOperation.Type != operation.Type || existedOperation.Description != operation.Description)
+                                {
+                                    existedOperation.Type = operation.Type;
+                                    existedOperation.Description = operation.Description;
+                                    existedOperation.DestinationBankId = operation.DestinationBankId;
+                                    existedOperation.UpdatedAt = DateTime.UtcNow;
+                                    await operationRepository.UpdateAsync(existedOperation);
+                                }
+                            }
                         }
 
                         break;
@@ -383,6 +418,47 @@ namespace api_finances.src.Services
         }
         #endregion  
         #region READ FILE
+        private static string NormalizeText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+
+            string normalized = text.Replace("â€¢", "•");
+
+            if (normalized.Contains('Ã') || normalized.Contains('Â') || normalized.Contains("â"))
+            {
+                byte[] bytes = Encoding.Latin1.GetBytes(normalized);
+                string decoded = Encoding.UTF8.GetString(bytes);
+                if (!decoded.Contains('\uFFFD'))
+                {
+                    normalized = decoded;
+                }
+            }
+
+            return normalized
+                .Replace("Ãª", "ê")
+                .Replace("ÃŠ", "Ê")
+                .Replace("Ã©", "é")
+                .Replace("Ã‰", "É")
+                .Replace("Ã£", "ã")
+                .Replace("Ãƒ", "Ã")
+                .Replace("Ã§", "ç")
+                .Replace("Ã‡", "Ç")
+                .Replace("Ãµ", "õ")
+                .Replace("Ã•", "Õ")
+                .Replace("Ã³", "ó")
+                .Replace("Ã“", "Ó")
+                .Replace("Ã¡", "á")
+                .Replace("Ã\u0081", "Á")
+                .Replace("Ãº", "ú")
+                .Replace("Ãš", "Ú")
+                .Replace("Ã­", "í")
+                .Replace("Ã\u008d", "Í")
+                .Replace("Ã´", "ô")
+                .Replace("Ã”", "Ô")
+                .Replace("Ã¢", "â")
+                .Replace("Ã‚", "Â");
+        }
+
         private string GetCodeBank(string bankName)
         {
             if (string.IsNullOrWhiteSpace(bankName))
