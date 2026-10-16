@@ -261,7 +261,8 @@ namespace api_finances.src.Services
                             string hour = worksheet.Cell(row, 2).GetFormattedString().Trim();
                             string type = NormalizeText(worksheet.Cell(row, 3).GetFormattedString().Trim());
                             string description = NormalizeText(worksheet.Cell(row, 4).GetFormattedString().Trim());
-                            string value = Regex.Replace(worksheet.Cell(row, 5).GetFormattedString(), @"[^\d.,]", "");
+                            string rawValue = worksheet.Cell(row, 5).GetFormattedString().Trim();
+                            string value = Regex.Replace(rawValue, @"[^\d.,]", "");
 
                             if (string.IsNullOrWhiteSpace(date) || string.IsNullOrWhiteSpace(value)) continue;
 
@@ -272,17 +273,26 @@ namespace api_finances.src.Services
                             List<string> splitDate = date.Split(['/', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                             if (splitDate.Count < 3) continue;
 
-                            CultureInfo picpayCulture = value.Contains(',') ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture;
-                            decimal cost = decimal.Parse(value, NumberStyles.Any, picpayCulture);
-                            cost = Math.Abs(cost);
+                            if (!worksheet.Cell(row, 5).TryGetValue<decimal>(out decimal rawPicpayCost))
+                            {
+                                CultureInfo picpayCulture = value.Contains(',') ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture;
+                                rawPicpayCost = decimal.Parse(value, NumberStyles.Any, picpayCulture);
+                                if (rawValue.Contains('-') || rawValue.Contains('−') || rawValue.Contains("â"))
+                                {
+                                    rawPicpayCost = -Math.Abs(rawPicpayCost);
+                                }
+                            }
+                            decimal cost = Math.Abs(rawPicpayCost);
                             DateTime dateTime = splitDate[0].Length == 4
                                 ? new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]))
                                 : new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
                             Operation? operation = null;
 
-                            bool isPicpayIncome = type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA")
-                                || type.ToUpper().Contains("TRANSFERENCIA RECEBIDA")
-                                || type.ToUpper().Contains("RECEBIDA");
+                            bool isPicpayIncome = type.ToUpper().Contains("RECEBIDO")
+                                || type.ToUpper().Contains("RECEBIDA")
+                                || type.ToUpper().Contains("RESGATADO")
+                                || rawValue.Contains('+')
+                                || rawPicpayCost > 0;
 
                             if (!myTranferName.Contains(description.ToUpper()) && isPicpayIncome)
                             {
