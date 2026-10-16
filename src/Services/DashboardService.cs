@@ -145,7 +145,7 @@ namespace api_finances.src.Services
                 List<Operation> operations = myOperations.Where(x => x.CreatedAt <= endDate.AddDays(1)).ToList();
                 List<Operation> operationsMonth = myOperations.Where(x => x.CreatedAt >= startDate.AddDays(-1) && x.CreatedAt <= endDate.AddDays(1)).ToList();
 
-                decimal totalIncome = operations.Where(x => x.Type != "expense").Sum(x => x.Value);
+                decimal totalIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value);
                 decimal totalExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value);
 
                 decimal monthIncome = operationsMonth.Where(x => x.Type != "expense").Sum(x => x.Value);
@@ -156,10 +156,10 @@ namespace api_finances.src.Services
                     totalAccount = totalIncome - totalExpense,
                     totalMonthAccount = monthIncome - monthExpense,
 
-                    totalAccountIncome = operations.Where(x => x.Type != "expense").Sum(x => x.Value),
+                    totalAccountIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value),
                     totalAccountExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value),
 
-                    totalAccountMonthIncome = operationsMonth.Where(x => x.Type != "expense").Sum(x => x.Value),
+                    totalAccountMonthIncome = operationsMonth.Where(x => x.Type == "income").Sum(x => x.Value),
                     totalAccountMonthExpense = operationsMonth.Where(x => x.Type == "expense").Sum(x => x.Value)
                 };
 
