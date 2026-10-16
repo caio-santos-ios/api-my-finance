@@ -109,6 +109,7 @@ namespace api_finances.src.Services
 
                 existed.Data.UpdatedAt = DateTime.UtcNow;
                 existed.Data.UpdatedBy = request.UpdatedBy;
+                existed.Data.CreatedAt = request.CreatedAt;
                 existed.Data.Value = request.Value;
                 existed.Data.CategoryId = request.CategoryId;
                 existed.Data.BankId = request.BankId;
