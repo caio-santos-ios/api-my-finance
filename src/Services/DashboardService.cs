@@ -142,8 +142,8 @@ namespace api_finances.src.Services
             try
             {
                 List<Operation> myOperations = await repository.GetDashAppAsync(userId);
-                List<Operation> operations = myOperations.Where(x => x.CreatedAt <= endDate.AddDays(1)).ToList();
-                List<Operation> operationsMonth = myOperations.Where(x => x.CreatedAt >= startDate && x.CreatedAt <= endDate.AddDays(1)).ToList();
+                List<Operation> operations = myOperations.Where(x => x.CreatedAt <= endDate).ToList();
+                List<Operation> operationsMonth = myOperations.Where(x => x.CreatedAt >= startDate && x.CreatedAt <= endDate).ToList();
 
                 decimal totalIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value);
                 decimal totalExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value);
