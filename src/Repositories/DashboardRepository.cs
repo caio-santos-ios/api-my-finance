@@ -30,9 +30,9 @@ namespace api_finances.src.Repository
             Dashboard? entity = await context.Dashboards.Find(x => !x.Deleted && x.Id == id).FirstOrDefaultAsync();
             return entity;
         }
-        public async Task<List<Operation>> GetDashAppAsync(DateTime startDate, DateTime endDate)
+        public async Task<List<Operation>> GetDashAppAsync(string userId)
         {
-            List<Operation> entities = await context.Operations.Find(x => !x.Deleted && x.CreatedAt >= startDate && x.CreatedAt <= endDate).ToListAsync();
+            List<Operation> entities = await context.Operations.Find(x => !x.Deleted && x.CreatedBy == userId).ToListAsync();
             return entities;
         }
         public async Task<int> GetCountDocumentsAsync(List<BsonDocument> pipeline)

@@ -103,6 +103,7 @@ namespace api_finances.src.Services
                 int firstColumn = range.FirstColumn().ColumnNumber();
                 int lastColumn = range.LastColumn().ColumnNumber();
                 Bank? bank = await bankRepository.GetByCodeAsync(request.Bank);
+                List<string> myTranferName = request.Name.Split(";").Select(x => x.ToUpper()).ToList();
 
                 switch (request.Bank)
                 {
@@ -134,7 +135,7 @@ namespace api_finances.src.Services
                             DateTime dateTime = new DateTime(int.Parse(splitDate[2]), int.Parse(splitDate[1]), int.Parse(splitDate[0]));
                             Operation? operation = null;
 
-                            if (name.ToUpper() != request.Name.ToUpper() && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
+                            if (!myTranferName.Contains(name.ToUpper()) && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
                             {
                                 operation = new()
                                 {
@@ -155,7 +156,7 @@ namespace api_finances.src.Services
                             }
                             else
                             {
-                                if (name.ToUpper() != request.Name.ToUpper())
+                                if (!myTranferName.Contains(name.ToUpper()))
                                 {
                                     operation = new()
                                     {
@@ -239,7 +240,7 @@ namespace api_finances.src.Services
                             DateTime dateTime = new DateTime(int.Parse(splitDate[0]), int.Parse(splitDate[1]), int.Parse(splitDate[2]));
                             Operation? operation = null;
 
-                            if (description.ToUpper() != request.Name.ToUpper() && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
+                            if (!myTranferName.Contains(description.ToUpper()) && type.ToUpper().Contains("TRANSFERÊNCIA RECEBIDA"))
                             {
                                 operation = new()
                                 {
@@ -260,7 +261,7 @@ namespace api_finances.src.Services
                             }
                             else
                             {
-                                if (description.ToUpper() != request.Name.ToUpper())
+                                if (!myTranferName.Contains(description.ToUpper()))
                                 {
                                     operation = new()
                                     {
@@ -312,9 +313,9 @@ namespace api_finances.src.Services
 
                 return new(null, 201, "Importação feita com sucesso.");
             }
-            catch
+            catch(Exception ex)
             {
-                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
 

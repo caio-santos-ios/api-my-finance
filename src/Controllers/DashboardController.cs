@@ -53,7 +53,7 @@ namespace api_finances.src.Controllers
         [HttpGet("app")]
         public async Task<IActionResult> GetDashAppAsync([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
         {
-            ResponseApi<dynamic?> response = await service.GetDashAppAsync(startDate, endDate);
+            ResponseApi<dynamic?> response = await service.GetDashAppAsync(UserId, startDate, endDate);
             return StatusCode(response.StatusCode, response.Result);
         }
 

@@ -10,7 +10,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<dynamic>> GetDashAsync(GetAllRequest request);
         Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
-        Task<ResponseApi<dynamic?>> GetDashAppAsync(DateTime startDate, DateTime endDate);
+        Task<ResponseApi<dynamic?>> GetDashAppAsync(string userId, DateTime startDate, DateTime endDate);
         Task<ResponseApi<Dashboard?>> CreateAsync(CreateDashboardRequest request);
         Task<ResponseApi<Dashboard?>> UpdateAsync(UpdateDashboardRequest request);
     }

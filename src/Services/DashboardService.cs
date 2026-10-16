@@ -137,17 +137,30 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        public async Task<ResponseApi<dynamic?>> GetDashAppAsync(DateTime startDate, DateTime endDate)
+        public async Task<ResponseApi<dynamic?>> GetDashAppAsync(string userId, DateTime startDate, DateTime endDate)
         {
             try
             {
-                List<Operation> operations = await repository.GetDashAppAsync(startDate.AddDays(-1), endDate.AddDays(1));
+                List<Operation> myOperations = await repository.GetDashAppAsync(userId);
+                List<Operation> operations = myOperations.Where(x => x.CreatedAt <= endDate.AddDays(1)).ToList();
+                List<Operation> operationsMonth = myOperations.Where(x => x.CreatedAt >= startDate.AddDays(-1) && x.CreatedAt <= endDate.AddDays(1)).ToList();
+
+                decimal totalIncome = operations.Where(x => x.Type != "expense").Sum(x => x.Value);
+                decimal totalExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value);
+
+                decimal monthIncome = operationsMonth.Where(x => x.Type != "expense").Sum(x => x.Value);
+                decimal monthExpense = operationsMonth.Where(x => x.Type == "expense").Sum(x => x.Value);
 
                 dynamic data = new
                 {
-                    totalAccount = operations.Sum(x => x.Value),
-                    totalAccountIncome = operations.Where(x => x.Type == "income").Sum(x => x.Value),
-                    totalAccountExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value)
+                    totalAccount = totalIncome - totalExpense,
+                    totalMonthAccount = monthIncome - monthExpense,
+
+                    totalAccountIncome = operations.Where(x => x.Type != "expense").Sum(x => x.Value),
+                    totalAccountExpense = operations.Where(x => x.Type == "expense").Sum(x => x.Value),
+
+                    totalAccountMonthIncome = operationsMonth.Where(x => x.Type != "expense").Sum(x => x.Value),
+                    totalAccountMonthExpense = operationsMonth.Where(x => x.Type == "expense").Sum(x => x.Value)
                 };
 
                 return new(data, 200, "Dashboard encontrado");
