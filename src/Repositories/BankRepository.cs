@@ -68,13 +68,35 @@ namespace api_finances.src.Repository
                     new("$match", pagination.PipelineFilter),
                     new("$sort", pagination.PipelineSort),
 
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},
+                    }),
+
+                    MongoUtil.Lookup("operations", ["$bankId"], ["$id"], "_operations", [["deleted", false]]),
+
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
                         {"name", 1},
                         {"code", 1},
-                        {"active", 1}
+                        {"active", 1},
+                        {"balance", new BsonDocument("$round", new BsonArray
+                            {
+                                new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                {
+                                    {"input", "$_operations"},
+                                    {"as", "op"},
+                                    {"in", new BsonDocument("$convert", new BsonDocument
+                                    {
+                                        {"input", "$$op.value"},
+                                        {"to", "double"},
+                                        {"onError", 0},
+                                        {"onNull", 0}
+                                    })}
+                                })),
+                                2
+                            })},
                     }),
                     new("$sort", pagination.PipelineSort),
                 };

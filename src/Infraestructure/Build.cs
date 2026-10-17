@@ -5,9 +5,6 @@ using api_finances.src.Infraestructure;
 using api_finances.src.Helpers;
 using CloudinaryDotNet;
 using MongoDB.Driver;
-using api_finances.src.Interfaces;
-using api_finances.src.Services;
-using api_finances.src.Repository;
 using api_finances.src.Works;
 
 namespace api_finances.src.Configuration

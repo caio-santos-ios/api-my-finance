@@ -1,6 +1,5 @@
 using MongoDB.Driver;
 using api_finances.src.Models;
-using api_finances.src.Models;
 
 namespace api_finances.src.Infraestructure
 {
