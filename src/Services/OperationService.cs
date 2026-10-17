@@ -60,6 +60,7 @@ namespace api_finances.src.Services
                         {"bankId", 1},
                         {"destinationBankId", 1},
                         {"repeat", 1},
+                        {"recurrence", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
@@ -123,6 +124,9 @@ namespace api_finances.src.Services
                         {"createdAt", 1},
                         {"categoryId", 1},
                         {"bankId", 1},
+                        {"destinationBankId", 1},
+                        {"repeat", 1},
+                        {"recurrence", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
@@ -184,7 +188,11 @@ namespace api_finances.src.Services
                 if (request.Type == "transfer" && string.IsNullOrWhiteSpace(request.DestinationBankId))
                     return new(null, 400, "O Banco de destino é obrigatório.");
 
+                if (request.Repeat && string.IsNullOrWhiteSpace(request.Recurrence))
+                    return new(null, 400, "A Recorrência é obrigatória.");
+
                 Operation operation = ObjectMapper.Map<CreateOperationRequest, Operation>(request);
+                operation.Recurrence = request.Repeat ? request.Recurrence : string.Empty;
 
                 Operation? response = await repository.CreateAsync(operation);
                 if (response is null) return new(null, 400, "Falha ao criar conta.");
@@ -219,6 +227,9 @@ namespace api_finances.src.Services
                 if (request.Type == "transfer" && string.IsNullOrWhiteSpace(request.DestinationBankId))
                     return new(null, 400, "O Banco de destino é obrigatório.");
 
+                if (request.Repeat && string.IsNullOrWhiteSpace(request.Recurrence))
+                    return new(null, 400, "A Recorrência é obrigatória.");
+
                 Operation? existed = await repository.GetByIdAsync(request.Id);
                 if (existed is null) return new(null, 404, "Falha ao atualizar");
 
@@ -232,6 +243,7 @@ namespace api_finances.src.Services
                 existed.Description = request.Description;
                 existed.Type = request.Type;
                 existed.Repeat = request.Repeat;
+                existed.Recurrence = request.Repeat ? request.Recurrence : string.Empty;
 
                 Operation? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar");

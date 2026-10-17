@@ -19,6 +19,7 @@ namespace api_finances.src.Requests
         [Required(ErrorMessage = "O Tipo é obrigatório.")]
         public string Type { get; set; } = string.Empty;
         public bool Repeat { get; set; } = false;
+        public string Recurrence { get; set; } = string.Empty;
         public string Origin { get; set; } = string.Empty;
         public string OriginId { get; set; } = string.Empty;
         public DateTime Date { get; set; } = DateTime.UtcNow;

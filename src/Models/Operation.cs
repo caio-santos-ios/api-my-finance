@@ -35,5 +35,8 @@ namespace api_finances.src.Models
 
         [BsonElement("repeat")]
         public bool Repeat { get; set; } = false;
+
+        [BsonElement("recurrence")]
+        public string Recurrence { get; set; } = string.Empty;
     }
 }

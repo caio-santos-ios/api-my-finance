@@ -63,6 +63,7 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IBudgetRepository, BudgetRepository>();
 
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
+            builder.Services.AddHostedService<RecurringOperationsWork>();
 
             Account account = new(
                 Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),
