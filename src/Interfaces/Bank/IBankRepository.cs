@@ -1,22 +1,20 @@
 using api_finances.src.Models;
-using api_finances.src.Models.Base;
-using api_finances.src.Shared.DTOs;
-using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Interfaces
 {
     public interface IBankRepository
     {
-        Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Bank> pagination);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Bank> pagination);
-        Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
-        Task<ResponseApi<Bank?>> GetByIdAsync(string id);
+        Task<List<dynamic>> GetAllAsync(BsonDocument[] pipeline);
+        Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline);
+        Task<dynamic?> GetByIdAggregateAsync(BsonDocument[] pipeline);
+        Task<Bank?> GetByIdAsync(string id);
         Task<Bank?> GetByCodeAsync(string code);
         Task<Bank?> GetFirstAsync();
         Task<long> GetNextCode(string userId);
-        Task<int> GetCountDocumentsAsync(PaginationUtil<Bank> pagination);
-        Task<ResponseApi<Bank?>> CreateAsync(Bank entity);
-        Task<ResponseApi<Bank?>> UpdateAsync(Bank request);
-        Task<ResponseApi<Bank>> DeleteAsync(DeleteRequest request);
+        Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline);
+        Task<Bank?> CreateAsync(Bank entity);
+        Task<Bank?> UpdateAsync(Bank entity);
+        Task<Bank> DeleteAsync(Bank entity);
     }
 }

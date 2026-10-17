@@ -5,6 +5,7 @@ using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
 using api_finances.src.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Services
 {
@@ -18,9 +19,65 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Bank> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetAllAsync(pagination);
-                int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(categories.Data, count, pagination.PageNumber, pagination.PageSize);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$skip", pagination.Skip),
+                    new("$limit", pagination.Limit),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},
+                    }),
+
+                    MongoUtil.Lookup("operations", ["$id"], ["$bankId"], "_operations", [["deleted", false]]),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", 1},
+                        {"name", 1},
+                        {"code", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"balance", new BsonDocument("$round", new BsonArray
+                            {
+                                new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                {
+                                    {"input", "$_operations"},
+                                    {"as", "op"},
+                                    {"in", new BsonDocument("$cond", new BsonArray
+                                    {
+                                        new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
+                                        new BsonDocument("$convert", new BsonDocument
+                                        {
+                                            {"input", "$$op.value"},
+                                            {"to", "double"},
+                                            {"onError", 0},
+                                            {"onNull", 0}
+                                        }),
+                                        new BsonDocument("$multiply", new BsonArray
+                                        {
+                                            -1,
+                                            new BsonDocument("$convert", new BsonDocument
+                                            {
+                                                {"input", "$$op.value"},
+                                                {"to", "double"},
+                                                {"onError", 0},
+                                                {"onNull", 0}
+                                            })
+                                        })
+                                    })}
+                                })),
+                                2
+                            })},
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetAllAsync(pipeline);
+                int count = await repository.GetCountDocumentsAsync(pipeline);
+                PaginationApi<List<dynamic>> data = new(entities, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Bancos listados com sucesso");
             }
             catch (Exception ex)
@@ -33,8 +90,61 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Bank> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetSelectAsync(pagination);
-                return new(categories.Data, 200, "Bancos listados com sucesso");
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},
+                    }),
+
+                    MongoUtil.Lookup("operations", ["$id"], ["$bankId"], "_operations", [["deleted", false]]),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", 1},
+                        {"name", 1},
+                        {"code", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"balance", new BsonDocument("$round", new BsonArray
+                            {
+                                new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                {
+                                    {"input", "$_operations"},
+                                    {"as", "op"},
+                                    {"in", new BsonDocument("$cond", new BsonArray
+                                    {
+                                        new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
+                                        new BsonDocument("$convert", new BsonDocument
+                                        {
+                                            {"input", "$$op.value"},
+                                            {"to", "double"},
+                                            {"onError", 0},
+                                            {"onNull", 0}
+                                        }),
+                                        new BsonDocument("$multiply", new BsonArray
+                                        {
+                                            -1,
+                                            new BsonDocument("$convert", new BsonDocument
+                                            {
+                                                {"input", "$$op.value"},
+                                                {"to", "double"},
+                                                {"onError", 0},
+                                                {"onNull", 0}
+                                            })
+                                        })
+                                    })}
+                                })),
+                                2
+                            })},
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+                List<dynamic> entities = await repository.GetSelectAsync(pipeline);
+                return new(entities, 200, "Bancos listados com sucesso");
             }
             catch (Exception ex)
             {
@@ -45,9 +155,23 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<dynamic?> banks = await repository.GetByIdAggregateAsync(id);
-                if (banks.Data is null) return new(null, 404, "Banco não encontrado");
-                return new(banks.Data, 200, "Banco encontrado");
+                BsonDocument[] pipeline = [
+                    new("$match", new BsonDocument{
+                        {"_id", new ObjectId(id)},
+                        {"deleted", false}
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"code", 1}
+                    }),
+                ];
+                dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
+                if (entity is null) return new(null, 404, "Banco não encontrado");
+                return new(entity, 200, "Banco encontrado");
             }
             catch (Exception ex)
             {
@@ -63,14 +187,14 @@ namespace api_finances.src.Services
             {
                 Bank banks = ObjectMapper.Map<CreateBankRequest, Bank>(request);
 
-                ResponseApi<Bank?> response = await repository.CreateAsync(banks);
-                if (response.Data is null) return new(null, 400, "Falha ao criar conta.");
+                Bank? response = await repository.CreateAsync(banks);
+                if (response is null) return new(null, 400, "Falha ao criar conta.");
 
-                return new(response.Data, 201, "Banco criado com sucesso.");
+                return new(response, 201, "Banco criado com sucesso.");
             }
-            catch
+            catch(Exception ex)
             {
-                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
 
@@ -81,16 +205,16 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Bank?> existed = await repository.GetByIdAsync(request.Id);
-                if (existed.Data is null) return new(null, 404, "Falha ao atualizar");
+                Bank? existed = await repository.GetByIdAsync(request.Id);
+                if (existed is null) return new(null, 404, "Falha ao atualizar");
 
                 Bank banks = ObjectMapper.Map<UpdateBankRequest, Bank>(request);
                 banks.UpdatedAt = DateTime.UtcNow;
 
-                ResponseApi<Bank?> response = await repository.UpdateAsync(banks);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                Bank? response = await repository.UpdateAsync(banks);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
-                return new(response.Data, 200, "Atualizado com sucesso");
+                return new(response, 200, "Atualizado com sucesso");
             }
             catch (Exception ex)
             {
@@ -104,9 +228,16 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Bank> banks = await repository.DeleteAsync(request);
-                if (!banks.IsSuccess) return new(null, 400, banks.Message);
-                return new(banks.Data, 204, "Banco excluído com sucesso");
+                Bank? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Falha ao atualizar");
+                
+                entity.Deleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+                entity.DeletedBy = request.DeletedBy;
+
+                await repository.DeleteAsync(entity);
+
+                return new(entity, 204, "Banco excluído com sucesso");
             }
             catch (Exception ex)
             {
