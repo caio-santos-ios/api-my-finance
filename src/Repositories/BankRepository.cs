@@ -73,11 +73,12 @@ namespace api_finances.src.Repository
                         {"id", new BsonDocument("$toString", "$_id")},
                     }),
 
-                    MongoUtil.Lookup("operations", ["$bankId"], ["$id"], "_operations", [["deleted", false]]),
+                    MongoUtil.Lookup("operations", ["$id"], ["$bankId"], "_operations", [["deleted", false]]),
 
                     new("$project", new BsonDocument
                     {
                         {"_id", 0},
+                        {"id", 1},
                         {"name", 1},
                         {"code", 1},
                         {"active", 1},
