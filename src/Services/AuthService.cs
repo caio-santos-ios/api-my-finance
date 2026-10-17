@@ -21,8 +21,8 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> existed = await userRepository.GetByEmailAsync(request.Email);
-                if (existed.Data is not null) return new(null, 400, "E-mail inválido, tente usar outro");
+                User? existed = await userRepository.GetByEmailAsync(request.Email);
+                if (existed is not null) return new(null, 400, "E-mail inválido, tente usar outro");
 
                 dynamic access = Util.GenerateCodeAccess();
 
@@ -37,8 +37,8 @@ namespace api_finances.src.Services
                     Admin = request.Admin,
                 };
 
-                ResponseApi<User?> response = await userRepository.CreateAsync(user);
-                if (response.Data is null) return new(null, 400, "Falha ao criar conta.");
+                User? response = await userRepository.CreateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao criar conta.");
 
                 await mailHelper.SendAccountConfirmationMail(request.Email, request.Name, access.CodeAccess);
 
@@ -55,50 +55,50 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> response = await userRepository.GetByEmailAsync(request.Email);
-                if (response.Data is null) return new(null, 400, "E-mail ou senha são incorretos");
+                User? response = await userRepository.GetByEmailAsync(request.Email);
+                if (response is null) return new(null, 400, "E-mail ou senha são incorretos");
 
-                if (response.Data.Blocked) return new(null, 400, "Conta bloqueada, entre em contato com o Administrador");
+                if (response.Blocked) return new(null, 400, "Conta bloqueada, entre em contato com o Administrador");
 
-                if (!response.Data.ValidatedAccess)
+                if (!response.ValidatedAccess)
                 {
                     dynamic generateCode = Util.GenerateCodeAccess();
 
-                    response.Data.CodeAccess = generateCode.CodeAccess;
-                    response.Data.CodeAccessExpiration = generateCode.CodeAccessExpiration;
+                    response.CodeAccess = generateCode.CodeAccess;
+                    response.CodeAccessExpiration = generateCode.CodeAccessExpiration;
 
-                    await userRepository.UpdateAsync(response.Data);
+                    await userRepository.UpdateAsync(response);
 
-                    await mailHelper.SendAccountConfirmationMail(request.Email, response.Data.Name, generateCode.CodeAccess);
+                    await mailHelper.SendAccountConfirmationMail(request.Email, response.Name, generateCode.CodeAccess);
 
                     return new(null, 400, "Conta não foi confirmada, enviamos um e-mail de confirmação novamente");
                 }
 
-                bool isValid = BCrypt.Net.BCrypt.Verify(request.Password, response.Data.Password);
+                bool isValid = BCrypt.Net.BCrypt.Verify(request.Password, response.Password);
                 if (!isValid)
                 {
-                    if (response.Data.IncorrectsPassword.Count() > 5)
+                    if (response.IncorrectsPassword.Count() > 5)
                     {
-                        response.Data.Blocked = true;
-                        await userRepository.UpdateAsync(response.Data);
+                        response.Blocked = true;
+                        await userRepository.UpdateAsync(response);
                         return new(null, 400, "Usuário bloqueado, por tentativas de acesso indevido");
                     }
 
-                    response.Data.IncorrectsPassword.Add(new UserIncorrectPassword()
+                    response.IncorrectsPassword.Add(new UserIncorrectPassword()
                     {
                         Ip = request.Device.Ip,
                         Date = DateTime.UtcNow,
                         Platform = request.Device.Platform
                     });
-                    await userRepository.UpdateAsync(response.Data);
+                    await userRepository.UpdateAsync(response);
                     return new(null, 400, "Dados incorretos");
                 }
 
-                response.Data.Devices.Add(request.Device);
+                response.Devices.Add(request.Device);
 
-                await userRepository.UpdateAsync(response.Data);
+                await userRepository.UpdateAsync(response);
 
-                return new(new { Token = GenerateJwtToken(response.Data), RefreshToken = GenerateJwtToken(response.Data, true), response.Data.Photo, response.Data.Name, admin = response.Data.Admin.ToString() }, 200, "Login feito com sucesso.");
+                return new(new { Token = GenerateJwtToken(response), RefreshToken = GenerateJwtToken(response, true), response.Photo, response.Name, admin = response.Admin.ToString() }, 200, "Login feito com sucesso.");
             }
             catch
             {
@@ -130,19 +130,19 @@ namespace api_finances.src.Services
 
                 string email = jwt.Claims.First(c => c.Type == "email").Value;
 
-                ResponseApi<User?> response = await userRepository.GetByEmailAsync(email);
-                if (response.Data is null || response.Data.Blocked) return new(null, 401, "Usuário inválido.");
+                User? response = await userRepository.GetByEmailAsync(email);
+                if (response is null || response.Blocked) return new(null, 401, "Usuário inválido.");
 
                 return new(new
                 {
-                    Token = GenerateJwtToken(response.Data),
-                    RefreshToken = GenerateJwtToken(response.Data, true),
-                    response.Data.Photo,
-                    response.Data.Name,
-                    admin = response.Data.Admin.ToString()
+                    Token = GenerateJwtToken(response),
+                    RefreshToken = GenerateJwtToken(response, true),
+                    response.Photo,
+                    response.Name,
+                    admin = response.Admin.ToString()
                 }, 200, "Token renovado com sucesso.");
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
@@ -153,17 +153,17 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> response = await userRepository.GetByEmailAsync(request.Email);
-                if (response.Data is null) return new(null, 400, "E-mail inválido");
+                User? response = await userRepository.GetByEmailAsync(request.Email);
+                if (response is null) return new(null, 400, "E-mail inválido");
 
                 dynamic generateCode = Util.GenerateCodeAccess();
 
-                response.Data.CodeAccess = generateCode.CodeAccess;
-                response.Data.CodeAccessExpiration = generateCode.CodeAccessExpiration;
+                response.CodeAccess = generateCode.CodeAccess;
+                response.CodeAccessExpiration = generateCode.CodeAccessExpiration;
 
-                await userRepository.UpdateAsync(response.Data);
+                await userRepository.UpdateAsync(response);
 
-                await mailHelper.SendPasswordResetMail(response.Data.Email, response.Data.Name, generateCode.CodeAccess);
+                await mailHelper.SendPasswordResetMail(response.Email, response.Name, generateCode.CodeAccess);
 
                 return new(new { }, 200, "Foi enviado um código de verificação para o e-mail.");
             }
@@ -176,21 +176,21 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> response = await userRepository.GetByCodeAsync(request.Code);
-                if (response.Data is null) return new(null, 400, "Código inválido");
+                User? response = await userRepository.GetByCodeAsync(request.Code);
+                if (response is null) return new(null, 400, "Código inválido");
 
                 DateTime today = DateTime.Now;
 
-                if (today > response.Data.CodeAccessExpiration) return new(null, 400, "Código expirou, deve solicitar outro");
+                if (today > response.CodeAccessExpiration) return new(null, 400, "Código expirou, deve solicitar outro");
 
                 dynamic generateCode = Util.GenerateCodeAccess();
 
-                response.Data.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
-                response.Data.ValidatedAccess = true;
-                response.Data.CodeAccessExpiration = null;
-                response.Data.CodeAccess = "";
+                response.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
+                response.ValidatedAccess = true;
+                response.CodeAccessExpiration = null;
+                response.CodeAccess = "";
 
-                await userRepository.UpdateAsync(response.Data);
+                await userRepository.UpdateAsync(response);
 
                 return new(new { }, 200, "Senha resetada com sucesso.");
             }
@@ -203,13 +203,13 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> response = await userRepository.GetByIdAsync(request.UserId);
-                if (response.Data is null) return new(null, 404, "Usuário não encontrado");
+                User? response = await userRepository.GetByIdAsync(request.UserId);
+                if (response is null) return new(null, 404, "Usuário não encontrado");
 
-                response.Data.Blocked = false;
-                response.Data.IncorrectsPassword = [];
+                response.Blocked = false;
+                response.IncorrectsPassword = [];
 
-                await userRepository.UpdateAsync(response.Data);
+                await userRepository.UpdateAsync(response);
 
                 return new(new { }, 200, "Tentativa de login resetada com sucesso.");
             }
@@ -224,18 +224,18 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> response = await userRepository.GetByEmailAsync(request.Email);
-                if (response.Data is null) return new(null, 400, "E-mail inválido");
+                User? response = await userRepository.GetByEmailAsync(request.Email);
+                if (response is null) return new(null, 400, "E-mail inválido");
 
                 dynamic generateCode = Util.GenerateCodeAccess();
 
-                response.Data.CodeAccess = generateCode.CodeAccess;
-                response.Data.CodeAccessExpiration = generateCode.CodeAccessExpiration;
-                response.Data.ValidatedAccess = false;
+                response.CodeAccess = generateCode.CodeAccess;
+                response.CodeAccessExpiration = generateCode.CodeAccessExpiration;
+                response.ValidatedAccess = false;
 
-                await userRepository.UpdateAsync(response.Data);
+                await userRepository.UpdateAsync(response);
 
-                await mailHelper.SendAccountConfirmationMail(request.Email, response.Data.Name, generateCode.CodeAccess);
+                await mailHelper.SendAccountConfirmationMail(request.Email, response.Name, generateCode.CodeAccess);
 
                 return new(new { }, 200, "Foi enviado um código de verificação para o e-mail.");
             }

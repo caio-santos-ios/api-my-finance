@@ -1,21 +1,19 @@
 using api_finances.src.Models;
-using api_finances.src.Models.Base;
-using api_finances.src.Shared.DTOs;
-using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Interfaces
 {
     public interface IUserRepository
     {
-        Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<User> pagination);
-        Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
-        Task<ResponseApi<User?>> GetByIdAsync(string id);
-        Task<ResponseApi<List<User>>> GetNotByIdAsync(string id);
-        Task<ResponseApi<User?>> GetByEmailAsync(string email);
-        Task<ResponseApi<User?>> GetByCodeAsync(string code);
-        Task<int> GetCountDocumentsAsync(PaginationUtil<User> pagination);
-        Task<ResponseApi<User?>> CreateAsync(User user);
-        Task<ResponseApi<User?>> UpdateAsync(User request);
-        Task<ResponseApi<User>> DeleteAsync(DeleteRequest request);
+        Task<List<dynamic>> GetAllAsync(BsonDocument[] pipeline);
+        Task<dynamic?> GetByIdAggregateAsync(BsonDocument[] pipeline);
+        Task<User?> GetByIdAsync(string id);
+        Task<List<User>> GetNotByIdAsync(string id);
+        Task<User?> GetByEmailAsync(string email);
+        Task<User?> GetByCodeAsync(string code);
+        Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline);
+        Task<User?> CreateAsync(User entity);
+        Task<User?> UpdateAsync(User entity);
+        Task<User> DeleteAsync(User entity);
     }
 }

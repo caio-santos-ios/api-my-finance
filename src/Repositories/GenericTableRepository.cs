@@ -9,13 +9,12 @@ namespace api_finances.src.Repository
 {
     public class GenericTableRepository(AppDbContext context) : IGenericTableRepository
     {
-        public async Task<List<dynamic>> GetSelectAsync(List<BsonDocument> pipeline)
+        #region READ
+        public async Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline)
         {
             List<BsonDocument> results = await context.GenericTables.Aggregate<BsonDocument>(pipeline).ToListAsync();
-            List<dynamic> entities = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
-            return entities;
+            return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
         }
-
         public async Task<GenericTable?> GetByIdAsync(string id)
         {
             return await context.GenericTables.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
@@ -24,17 +23,27 @@ namespace api_finances.src.Repository
         {
             return await context.GenericTables.Find(x => x.Table == table && x.CreatedBy == userId && !x.Deleted).CountDocumentsAsync();
         }
-
-        public async Task<GenericTable> CreateAsync(GenericTable entity)
+        #endregion
+        #region CREATE
+        public async Task<GenericTable?> CreateAsync(GenericTable entity)
         {
             await context.GenericTables.InsertOneAsync(entity);
             return entity;
         }
-
-        public async Task<GenericTable> UpdateAsync(GenericTable entity)
+        #endregion
+        #region UPDATE
+        public async Task<GenericTable?> UpdateAsync(GenericTable entity)
         {
             await context.GenericTables.ReplaceOneAsync(x => x.Id == entity.Id && x.CreatedBy == entity.CreatedBy, entity);
             return entity;
         }
+        #endregion
+        #region DELETE
+        public async Task<GenericTable> DeleteAsync(GenericTable entity)
+        {
+            await context.GenericTables.ReplaceOneAsync(x => x.Id == entity.Id && x.CreatedBy == entity.CreatedBy, entity);
+            return entity;
+        }
+        #endregion
     }
 }

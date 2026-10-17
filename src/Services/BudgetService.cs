@@ -5,6 +5,7 @@ using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
 using api_finances.src.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Services
 {
@@ -19,9 +20,68 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Budget> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> budgets = await repository.GetAllAsync(pagination);
-                int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(budgets.Data, count, pagination.PageNumber, pagination.PageSize);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$skip", pagination.Skip),
+                    new("$limit", pagination.Limit),
+
+                    MongoUtil.Lookup("operations", ["$categoryId"], ["$categoryId"], "_operations", [["deleted", false]]),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
+                            })
+                        }
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"spent", new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                        {
+                            {"input", "$_operations"},
+                            {"as", "op"},
+                            {"in", new BsonDocument("$convert", new BsonDocument
+                            {
+                                {"input", "$$op.value"},
+                                {"to", "double"},
+                                {"onError", 0.0},
+                                {"onNull", 0.0}
+                            })}
+                        }))},
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"categoryId", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
+                        {"limit", 1},
+                        {"receiveAlert", 1},
+                        {"alertPercentage", 1},
+                        {"remaining", new BsonDocument("$subtract", new BsonArray
+                        {
+                            new BsonDocument("$toDouble", "$limit"),
+                            new BsonDocument("$toDouble", "$spent"),
+                        })},
+                        {"spent", 1},
+                        {"active", 1},
+                        {"createdAt", 1}
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetAllAsync(pipeline);
+                int count = await repository.GetCountDocumentsAsync(pipeline);
+                PaginationApi<List<dynamic>> data = new(entities, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Orçamentos listados com sucesso");
             }
             catch (Exception ex)
@@ -35,8 +95,40 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Budget> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> budgets = await repository.GetSelectAsync(pagination);
-                return new(budgets.Data, 200, "Orçamentos listados com sucesso");
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
+                            })
+                        }
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"categoryId", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
+                        {"limit", 1},
+                        {"receiveAlert", 1},
+                        {"alertPercentage", 1},
+                        {"active", 1}
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetSelectAsync(pipeline);
+                return new(entities, 200, "Orçamentos listados com sucesso");
             }
             catch (Exception ex)
             {
@@ -48,9 +140,80 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<dynamic?> budget = await repository.GetByIdAggregateAsync(id);
-                if (budget.Data is null) return new(null, 404, "Orçamento não encontrado");
-                return new(budget.Data, 200, "Orçamento encontrado");
+                BsonDocument[] pipeline = [
+                    new("$match", new BsonDocument{
+                        {"_id", new ObjectId(id)},
+                        {"deleted", false}
+                    }),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
+                            })
+                        }
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
+                    new BsonDocument("$lookup", new BsonDocument
+                    {
+                        { "from", "operations" },
+                        { "let", new BsonDocument
+                            {
+                                { "catId", "$categoryId" },
+                                { "user", "$createdBy" }
+                            }
+                        },
+                        { "pipeline", new BsonArray
+                            {
+                                new BsonDocument("$match", new BsonDocument
+                                {
+                                    { "$expr", new BsonDocument
+                                        {
+                                            { "$and", new BsonArray
+                                                {
+                                                    new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
+                                                    new BsonDocument("$eq", new BsonArray { "$type", "expense" }),
+                                                    new BsonDocument("$eq", new BsonArray { "$deleted", false }),
+                                                    new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" })
+                                                }
+                                            }
+                                        }
+                                    }
+                                })
+                            }
+                        },
+                        { "as", "_operations" }
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"categoryId", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
+                        {"limit", 1},
+                        {"receiveAlert", 1},
+                        {"alertPercentage", 1},
+                        {"spent", new BsonDocument("$sum", "$_operations.value")},
+                        {"remaining", new BsonDocument("$subtract", new BsonArray
+                        {
+                            "$limit",
+                            new BsonDocument("$sum", "$_operations.value")
+                        })},
+                        {"active", 1},
+                        {"createdAt", 1}
+                    }),
+                ];
+
+                dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
+                if (entity is null) return new(null, 404, "Orçamento não encontrado");
+                return new(entity, 200, "Orçamento encontrado");
             }
             catch (Exception ex)
             {
@@ -65,14 +228,14 @@ namespace api_finances.src.Services
             try
             {
                 Budget budget = ObjectMapper.Map<CreateBudgetRequest, Budget>(request);
-                ResponseApi<Budget?> response = await repository.CreateAsync(budget);
-                if (response.Data is null) return new(null, 400, "Falha ao criar orçamento.");
+                Budget? response = await repository.CreateAsync(budget);
+                if (response is null) return new(null, 400, "Falha ao criar orçamento.");
 
-                return new(response.Data, 201, "Orçamento criado com sucesso.");
+                return new(response, 201, "Orçamento criado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
         #endregion
@@ -82,28 +245,28 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Budget?> budget = await repository.GetByIdAsync(request.Id);
-                if (budget.Data is null) return new(null, 404, "Falha ao atualizar. Orçamento não encontrado");
+                Budget? existed = await repository.GetByIdAsync(request.Id);
+                if (existed is null) return new(null, 404, "Falha ao atualizar. Orçamento não encontrado");
 
                 string budgetName = request.Name;
                 if (string.IsNullOrWhiteSpace(budgetName))
                 {
-                    ResponseApi<Category?> category = await categoryRepository.GetByIdAsync(request.CategoryId);
-                    budgetName = category?.Data?.Name ?? budget.Data.Name;
+                    Category? category = await categoryRepository.GetByIdAsync(request.CategoryId);
+                    budgetName = category?.Name ?? existed.Name;
                 }
 
-                budget.Data.UpdatedAt = DateTime.UtcNow;
-                budget.Data.UpdatedBy = request.UpdatedBy;
-                budget.Data.Name = budgetName;
-                budget.Data.CategoryId = request.CategoryId;
-                budget.Data.Limit = request.Limit;
-                budget.Data.ReceiveAlert = request.ReceiveAlert;
-                budget.Data.AlertPercentage = request.AlertPercentage;
+                existed.UpdatedAt = DateTime.UtcNow;
+                existed.UpdatedBy = request.UpdatedBy;
+                existed.Name = budgetName;
+                existed.CategoryId = request.CategoryId;
+                existed.Limit = request.Limit;
+                existed.ReceiveAlert = request.ReceiveAlert;
+                existed.AlertPercentage = request.AlertPercentage;
 
-                ResponseApi<Budget?> response = await repository.UpdateAsync(budget.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                Budget? response = await repository.UpdateAsync(existed);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
-                return new(response.Data, 200, "Atualizado com sucesso");
+                return new(response, 200, "Atualizado com sucesso");
             }
             catch (Exception ex)
             {
@@ -117,9 +280,16 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Budget> budget = await repository.DeleteAsync(request);
-                if (!budget.IsSuccess) return new(null, 400, budget.Message);
-                return new(budget.Data, 204, "Orçamento excluído com sucesso");
+                Budget? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Orçamento não encontrado");
+
+                entity.Deleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+                entity.DeletedBy = request.DeletedBy;
+
+                await repository.DeleteAsync(entity);
+
+                return new(entity, 204, "Orçamento excluído com sucesso");
             }
             catch (Exception ex)
             {

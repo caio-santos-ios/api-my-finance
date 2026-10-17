@@ -19,7 +19,7 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<GenericTable> pagination = new(request.QueryParams);
-                List<BsonDocument> pipeline = [
+                BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
                     new("$project", new BsonDocument {
                         {"_id", 0},
@@ -46,7 +46,6 @@ namespace api_finances.src.Services
             try
             {
                 GenericTable entity = ObjectMapper.Map<CreateGenericTableRequest, GenericTable>(request);
-                entity.CreatedBy = request.CreatedBy;
                 entity.CreatedBy = request.CreatedBy;
                 entity.CreatedAt = DateTime.UtcNow;
                 entity.UpdatedAt = DateTime.UtcNow;
@@ -101,10 +100,10 @@ namespace api_finances.src.Services
                 if (existed is null || existed.CreatedBy != userId) return new(null, 404, "Registro não encontrado");
 
                 existed.Deleted = true;
-                existed.UpdatedAt = DateTime.UtcNow;
-                existed.UpdatedBy = userId;
+                existed.DeletedAt = DateTime.UtcNow;
+                existed.DeletedBy = userId;
 
-                await repository.UpdateAsync(existed);
+                await repository.DeleteAsync(existed);
                 return new(null, 200, "Registro excluído com sucesso");
             }
             catch (Exception ex)
@@ -112,6 +111,6 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        #endregion        
+        #endregion
     }
 }

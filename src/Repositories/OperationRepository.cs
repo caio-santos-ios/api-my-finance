@@ -1,9 +1,6 @@
 using api_finances.src.Infraestructure;
 using api_finances.src.Interfaces;
 using api_finances.src.Models;
-using api_finances.src.Models.Base;
-using api_finances.src.Shared.DTOs;
-using api_finances.src.Shared.Utils;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
@@ -12,170 +9,25 @@ namespace api_finances.src.Repository
 {
     public class OperationRepository(AppDbContext context) : IOperationRepository
     {
-        #region CREATE
-        public async Task<ResponseApi<Operation?>> CreateAsync(Operation operation)
-        {
-            try
-            {
-                await context.Operations.InsertOneAsync(operation);
-                return new(operation, 201, "Operação criado com sucesso");
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
-        }
-        #endregion
         #region READ
-        public async Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Operation> pagination)
+        public async Task<List<dynamic>> GetAllAsync(BsonDocument[] pipeline)
         {
-            try
-            {
-                List<BsonDocument> pipeline = new()
-                {
-                    new("$match", pagination.PipelineFilter),
-                    new("$sort", pagination.PipelineSort),
-                    new("$skip", pagination.Skip),
-                    new("$limit", pagination.Limit),
-
-                    new("$addFields", new BsonDocument
-                    {
-                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", BsonNull.Value },
-                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
-                            })
-                        }
-                    }),
-
-                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
-
-                    new("$project", new BsonDocument
-                    {
-                        {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
-                        {"description", 1},
-                        {"value", 1},
-                        {"type", 1},
-                        {"active", 1},
-                        {"createdAt", 1},
-                        {"categoryId", 1},
-                        {"bankId", 1},
-                        {"destinationBankId", 1},
-                        {"repeat", 1},
-                        { "categoryName", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", "Transferência" },
-                                { "else", MongoUtil.First("_categories.name") }
-                            })
-                        }
-                    }),
-                    new("$sort", pagination.PipelineSort),
-                };
-
-                List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
-                List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
-                return new(list);
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
         }
-        public async Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Operation> pagination)
+        public async Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline)
         {
-            try
-            {
-                List<BsonDocument> pipeline = new()
-                {
-                    new("$match", pagination.PipelineFilter),
-                    new("$sort", pagination.PipelineSort),
-
-                    new("$addFields", new BsonDocument
-                    {
-                        { "categoryObjId", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", BsonNull.Value },
-                                { "else", new BsonDocument("$toObjectId", "$categoryId") }
-                            })
-                        }
-                    }),
-
-                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
-
-                    new("$project", new BsonDocument
-                    {
-                        {"_id", 0},
-                        {"id", new BsonDocument("$toString", "$_id")},
-                        {"description", 1},
-                        {"value", 1},
-                        {"type", 1},
-                        {"active", 1},
-                        {"createdAt", 1},
-                        {"categoryId", 1},
-                        {"bankId", 1},
-                        { "categoryName", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", "Transferência" },
-                                { "else", MongoUtil.First("_categories.name") }
-                            })
-                        }
-                    }),
-                    new("$sort", pagination.PipelineSort),
-                };
-
-                List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
-                List<dynamic> list = results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
-                return new(list);
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).ToList();
         }
-        public async Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id)
+        public async Task<dynamic?> GetByIdAggregateAsync(BsonDocument[] pipeline)
         {
-            try
-            {
-                BsonDocument[] pipeline = [
-                    new("$match", new BsonDocument{
-                        {"_id", new ObjectId(id)},
-                        {"deleted", false}
-                    }),
-                    new("$addFields", new BsonDocument
-                    {
-                        {"id", new BsonDocument("$toString", "$_id")}
-                    }),
-                    new("$project", new BsonDocument
-                    {
-                        {"_id", 0},
-                    }),
-                ];
-
-                BsonDocument? response = await context.Operations.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
-                dynamic? result = response is null ? null : BsonSerializer.Deserialize<dynamic>(response);
-                return result is null ? new(null, 404, "Operação não encontrado") : new(result);
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            BsonDocument? response = await context.Operations.Aggregate<BsonDocument>(pipeline).FirstOrDefaultAsync();
+            return response is null ? null : BsonSerializer.Deserialize<dynamic>(response);
         }
-        public async Task<ResponseApi<Operation?>> GetByIdAsync(string id)
+        public async Task<Operation?> GetByIdAsync(string id)
         {
-            try
-            {
-                Operation? operation = await context.Operations.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
-                return new(operation);
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            return await context.Operations.Find(x => x.Id == id && !x.Deleted).FirstOrDefaultAsync();
         }
         public async Task<long> GetNextCode(string userId)
         {
@@ -185,66 +37,31 @@ namespace api_finances.src.Repository
         {
             return await context.Operations.Find(x => !x.Deleted && x.OriginId == originId).FirstOrDefaultAsync();
         }
-        public async Task<int> GetCountDocumentsAsync(PaginationUtil<Operation> pagination)
+        public async Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline)
         {
-            List<BsonDocument> pipeline = new()
-            {
-                new("$match", pagination.PipelineFilter),
-                new("$sort", pagination.PipelineSort),
-                new("$addFields", new BsonDocument
-                {
-                    {"id", new BsonDocument("$toString", "$_id")},
-                }),
-                new("$project", new BsonDocument
-                {
-                    {"_id", 0},
-                    {"password", 0},
-                    {"role", 0},
-                    {"blocked", 0},
-                    {"codeAccess", 0},
-                    {"validatedAccess", 0}
-                }),
-                new("$sort", pagination.PipelineSort),
-            };
-
             List<BsonDocument> results = await context.Operations.Aggregate<BsonDocument>(pipeline).ToListAsync();
             return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).Count();
         }
         #endregion
-        #region UPDATE
-        public async Task<ResponseApi<Operation?>> UpdateAsync(Operation operation)
+        #region CREATE
+        public async Task<Operation?> CreateAsync(Operation entity)
         {
-            try
-            {
-                await context.Operations.ReplaceOneAsync(x => x.Id == operation.Id, operation);
-                return new(operation, 200, "Operação atualizado com sucesso");
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            await context.Operations.InsertOneAsync(entity);
+            return entity;
+        }
+        #endregion
+        #region UPDATE
+        public async Task<Operation?> UpdateAsync(Operation entity)
+        {
+            await context.Operations.ReplaceOneAsync(x => x.Id == entity.Id, entity);
+            return entity;
         }
         #endregion
         #region DELETE
-        public async Task<ResponseApi<Operation>> DeleteAsync(DeleteRequest request)
+        public async Task<Operation> DeleteAsync(Operation entity)
         {
-            try
-            {
-                Operation? operation = await context.Operations.Find(x => x.Id == request.Id && !x.Deleted).FirstOrDefaultAsync();
-                if (operation is null) return new(null, 404, "Operação não encontrado");
-
-                operation.Deleted = true;
-                operation.DeletedAt = DateTime.UtcNow;
-                operation.DeletedBy = request.DeletedBy;
-
-                await context.Operations.ReplaceOneAsync(x => x.Id == operation.Id, operation);
-
-                return new(operation, 204, "Operação excluído com sucesso");
-            }
-            catch
-            {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde.");
-            }
+            await context.Operations.ReplaceOneAsync(x => x.Id == entity.Id, entity);
+            return entity;
         }
         #endregion
     }

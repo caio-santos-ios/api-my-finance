@@ -1,20 +1,18 @@
 using api_finances.src.Models;
-using api_finances.src.Models.Base;
-using api_finances.src.Shared.DTOs;
-using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Interfaces
 {
     public interface IAttachmentRepository
     {
-        Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Attachment> pagination);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Attachment> pagination);
-        Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
-        Task<ResponseApi<Attachment?>> GetByIdAsync(string id);
+        Task<List<dynamic>> GetAllAsync(BsonDocument[] pipeline);
+        Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline);
+        Task<dynamic?> GetByIdAggregateAsync(BsonDocument[] pipeline);
+        Task<Attachment?> GetByIdAsync(string id);
         Task<List<Attachment>> GetByParentIdAsync(string parentId, string parent);
-        Task<int> GetCountDocumentsAsync(PaginationUtil<Attachment> pagination);
-        Task<ResponseApi<Attachment?>> CreateAsync(Attachment entity);
-        Task<ResponseApi<Attachment?>> UpdateAsync(Attachment request);
-        Task<ResponseApi<Attachment>> DeleteAsync(DeleteRequest request);
+        Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline);
+        Task<Attachment?> CreateAsync(Attachment entity);
+        Task<Attachment?> UpdateAsync(Attachment entity);
+        Task<Attachment> DeleteAsync(Attachment entity);
     }
 }

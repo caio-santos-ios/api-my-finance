@@ -1,19 +1,17 @@
 using api_finances.src.Models;
-using api_finances.src.Models.Base;
-using api_finances.src.Shared.DTOs;
-using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Interfaces
 {
     public interface IImportationRepository
     {
-        Task<ResponseApi<List<dynamic>>> GetAllAsync(PaginationUtil<Importation> pagination);
-        Task<ResponseApi<List<dynamic>>> GetSelectAsync(PaginationUtil<Importation> pagination);
-        Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
-        Task<ResponseApi<Importation?>> GetByIdAsync(string id);
-        Task<int> GetCountDocumentsAsync(PaginationUtil<Importation> pagination);
-        Task<ResponseApi<Importation?>> CreateAsync(Importation entity);
-        Task<ResponseApi<Importation?>> UpdateAsync(Importation request);
-        Task<ResponseApi<Importation>> DeleteAsync(DeleteRequest request);
+        Task<List<dynamic>> GetAllAsync(BsonDocument[] pipeline);
+        Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline);
+        Task<dynamic?> GetByIdAggregateAsync(BsonDocument[] pipeline);
+        Task<Importation?> GetByIdAsync(string id);
+        Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline);
+        Task<Importation?> CreateAsync(Importation entity);
+        Task<Importation?> UpdateAsync(Importation entity);
+        Task<Importation> DeleteAsync(Importation entity);
     }
 }

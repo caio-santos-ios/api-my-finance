@@ -5,6 +5,7 @@ using api_finances.src.Models.Base;
 using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Services
 {
@@ -20,9 +21,28 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<User> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> users = await repository.GetAllAsync(pagination);
-                int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(users.Data, count, pagination.PageNumber, pagination.PageSize);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$skip", pagination.Skip),
+                    new("$limit", pagination.Limit),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"password", 0},
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetAllAsync(pipeline);
+                int count = await repository.GetCountDocumentsAsync(pipeline);
+                PaginationApi<List<dynamic>> data = new(entities, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Usuários listados com sucesso");
             }
             catch (Exception ex)
@@ -34,9 +54,27 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<dynamic?> user = await repository.GetByIdAggregateAsync(id);
-                if (user.Data is null) return new(null, 404, "Usuário não encontrado");
-                return new(user.Data, 200, "Usuário encontrado");
+                BsonDocument[] pipeline = [
+                    new("$match", new BsonDocument{
+                        {"_id", new ObjectId(id)},
+                        {"deleted", false}
+                    }),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")},
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"password", 0},
+                    }),
+                ];
+
+                dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
+                if (entity is null) return new(null, 404, "Usuário não encontrado");
+                return new(entity, 200, "Usuário encontrado");
             }
             catch (Exception ex)
             {
@@ -47,9 +85,8 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<List<User>> users = await repository.GetNotByIdAsync(id);
-                if (users.Data is null) return new(null, 404, "Usuário não encontrado");
-                return new(users.Data, 200, "Usuário encontrado");
+                List<User> users = await repository.GetNotByIdAsync(id);
+                return new(users, 200, "Usuário encontrado");
             }
             catch (Exception ex)
             {
@@ -63,8 +100,8 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> existed = await repository.GetByEmailAsync(request.Email);
-                if (existed.Data is not null) return new(null, 400, "E-mail inválido, tente usar outro");
+                User? existed = await repository.GetByEmailAsync(request.Email);
+                if (existed is not null) return new(null, 400, "E-mail inválido, tente usar outro");
 
                 dynamic access = Util.GenerateCodeAccess();
 
@@ -79,19 +116,18 @@ namespace api_finances.src.Services
                     Admin = request.Admin,
                 };
 
-                ResponseApi<User?> response = await repository.CreateAsync(user);
-                if (response.Data is null) return new(null, 400, "Falha ao criar conta.");
+                User? response = await repository.CreateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao criar conta.");
 
                 await mailHelper.SendMail(request.Email, "Código de Confirmação", $"Seu código de confirmação: {access.CodeAccess}");
 
                 return new(null, 201, "Usuário criado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
-
         #endregion
 
         #region UPDATE
@@ -99,23 +135,23 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> user = await repository.GetByIdAsync(request.Id);
-                if (user.Data is null) return new(null, 404, "Falha ao atualizar");
+                User? user = await repository.GetByIdAsync(request.Id);
+                if (user is null) return new(null, 404, "Falha ao atualizar");
 
                 if (!string.IsNullOrEmpty(request.Password))
                 {
-                    user.Data.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
+                    user.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
                 }
 
-                user.Data.UpdatedAt = DateTime.UtcNow;
-                user.Data.Email = request.Email;
-                user.Data.Name = request.Name;
-                user.Data.Phone = request.Phone;
+                user.UpdatedAt = DateTime.UtcNow;
+                user.Email = request.Email;
+                user.Name = request.Name;
+                user.Phone = request.Phone;
 
-                ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                User? response = await repository.UpdateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
-                return new(response.Data, 200, "Atualizado com sucesso");
+                return new(response, 200, "Atualizado com sucesso");
             }
             catch (Exception ex)
             {
@@ -126,14 +162,14 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> user = await repository.GetByIdAsync(request.Id);
-                if (user.Data is null) return new(null, 404, "Falha ao atualizar");
+                User? user = await repository.GetByIdAsync(request.Id);
+                if (user is null) return new(null, 404, "Falha ao atualizar");
 
-                user.Data.UpdatedAt = DateTime.UtcNow;
-                user.Data.TokenFCM = request.FCM;
+                user.UpdatedAt = DateTime.UtcNow;
+                user.TokenFCM = request.FCM;
 
-                ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                User? response = await repository.UpdateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
                 return new(null, 200, "Atualizado com sucesso");
             }
@@ -146,18 +182,18 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> user = await repository.GetByCodeAsync(request.Code);
-                if (user.Data is null)
+                User? user = await repository.GetByCodeAsync(request.Code);
+                if (user is null)
                 {
-                    ResponseApi<User?> existed = await repository.GetByEmailAsync(request.Email);
-                    if (existed.Data is not null)
+                    User? existed = await repository.GetByEmailAsync(request.Email);
+                    if (existed is not null)
                     {
                         dynamic access = Util.GenerateCodeAccess();
-                        existed.Data.CodeAccess = access.CodeAccess;
-                        existed.Data.CodeAccessExpiration = access.CodeAccessExpiration;
-                        existed.Data.ValidatedAccess = false;
+                        existed.CodeAccess = access.CodeAccess;
+                        existed.CodeAccessExpiration = access.CodeAccessExpiration;
+                        existed.ValidatedAccess = false;
 
-                        await repository.UpdateAsync(existed.Data);
+                        await repository.UpdateAsync(existed);
 
                         await mailHelper.SendMail(request.Email, "Código de Confirmação", $"Seu código de confirmação: {access.CodeAccess}");
                         return new(null, 404, "Código inválido, foi enviado um novo para o seu e-mail");
@@ -165,13 +201,13 @@ namespace api_finances.src.Services
                     return new(null, 404, "Código inválido");
                 }
 
-                user.Data.UpdatedAt = DateTime.UtcNow;
-                user.Data.CodeAccessExpiration = null;
-                user.Data.CodeAccess = "";
-                user.Data.ValidatedAccess = true;
+                user.UpdatedAt = DateTime.UtcNow;
+                user.CodeAccessExpiration = null;
+                user.CodeAccess = "";
+                user.ValidatedAccess = true;
 
-                ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao confirmar conta");
+                User? response = await repository.UpdateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao confirmar conta");
 
                 return new(null, 200, "Conta confirmada com sucesso");
             }
@@ -184,14 +220,14 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> user = await repository.GetByIdAsync(request.Id);
-                if (user.Data is null) return new(null, 404, "Falha ao salvar foto de perfil");
+                User? user = await repository.GetByIdAsync(request.Id);
+                if (user is null) return new(null, 404, "Falha ao salvar foto de perfil");
                 if (request.Photo is null) return new(null, 404, "Falha ao salvar foto de perfil");
 
                 string uri = await uploadHelper.SaveFileAsync(request.Photo, "users");
-                user.Data.Photo = uri;
-                ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao salvar foto de perfil");
+                user.Photo = uri;
+                User? response = await repository.UpdateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao salvar foto de perfil");
 
                 return new(uri, 200, "Foto de perfil salva com sucesso");
             }
@@ -204,12 +240,12 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User?> user = await repository.GetByIdAsync(request.Id);
-                if (user.Data is null) return new(null, 404, "Falha ao remover foto de perfil");
+                User? user = await repository.GetByIdAsync(request.Id);
+                if (user is null) return new(null, 404, "Falha ao remover foto de perfil");
 
-                user.Data.Photo = "";
-                ResponseApi<User?> response = await repository.UpdateAsync(user.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao remover foto de perfil");
+                user.Photo = "";
+                User? response = await repository.UpdateAsync(user);
+                if (response is null) return new(null, 400, "Falha ao remover foto de perfil");
 
                 return new("", 200, "Foto de perfil removida com sucesso");
             }
@@ -225,15 +261,22 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<User> user = await repository.DeleteAsync(request);
-                if (!user.IsSuccess) return new(null, 400, user.Message);
-                return new(user.Data, 204, "Usuário excluído com sucesso");
+                User? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Usuário não encontrado");
+
+                entity.Deleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+                entity.DeletedBy = request.DeletedBy;
+
+                await repository.DeleteAsync(entity);
+
+                return new(entity, 204, "Usuário excluído com sucesso");
             }
             catch (Exception ex)
             {
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        #endregion        
+        #endregion
     }
 }

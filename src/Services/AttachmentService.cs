@@ -6,6 +6,7 @@ using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
 using api_finances.src.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Services
 {
@@ -20,9 +21,36 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Attachment> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> attachments = await repository.GetAllAsync(pagination);
-                int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(attachments.Data, count, pagination.PageNumber, pagination.PageSize);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$skip", pagination.Skip),
+                    new("$limit", pagination.Limit),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"description", 1},
+                        {"value", 1},
+                        {"type", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetAllAsync(pipeline);
+                int count = await repository.GetCountDocumentsAsync(pipeline);
+                PaginationApi<List<dynamic>> data = new(entities, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Operações listados com sucesso");
             }
             catch (Exception ex)
@@ -35,8 +63,33 @@ namespace api_finances.src.Services
             try
             {
                 PaginationUtil<Attachment> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> attachments = await repository.GetSelectAsync(pagination);
-                return new(attachments.Data, 200, "Operações listados com sucesso");
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+
+                    new("$addFields", new BsonDocument
+                    {
+                        {"categoryObjId", new BsonDocument("$toObjectId", "$categoryId")}
+                    }),
+
+                    MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"description", 1},
+                        {"value", 1},
+                        {"type", 1},
+                        {"active", 1},
+                        {"createdAt", 1},
+                        {"categoryName", MongoUtil.First("_categories.name")},
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetSelectAsync(pipeline);
+                return new(entities, 200, "Operações listados com sucesso");
             }
             catch (Exception ex)
             {
@@ -47,9 +100,24 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<dynamic?> attachment = await repository.GetByIdAggregateAsync(id);
-                if (attachment.Data is null) return new(null, 404, "Anexo não encontrado");
-                return new(attachment.Data, 200, "Anexo encontrado");
+                BsonDocument[] pipeline = [
+                    new("$match", new BsonDocument{
+                        {"_id", new ObjectId(id)},
+                        {"deleted", false}
+                    }),
+
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"code", 1}
+                    }),
+                ];
+
+                dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
+                if (entity is null) return new(null, 404, "Anexo não encontrado");
+                return new(entity, 200, "Anexo encontrado");
             }
             catch (Exception ex)
             {
@@ -69,17 +137,16 @@ namespace api_finances.src.Services
                 string uri = await uploadHelper.SaveFileAsync(request.File!, request.Parent);
                 attachment.Uri = uri;
 
-                ResponseApi<Attachment?> response = await repository.CreateAsync(attachment);
-                if (response.Data is null) return new(null, 400, "Falha ao salvar anexo.");
+                Attachment? response = await repository.CreateAsync(attachment);
+                if (response is null) return new(null, 400, "Falha ao salvar anexo.");
 
-                return new(response.Data, 201, "Anexo criado com sucesso.");
+                return new(response, 201, "Anexo criado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
-
         #endregion
 
         #region UPDATE
@@ -87,16 +154,16 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Attachment?> existed = await repository.GetByIdAsync(request.Id);
-                if (existed.Data is null) return new(null, 404, "Falha ao atualizar");
+                Attachment? existed = await repository.GetByIdAsync(request.Id);
+                if (existed is null) return new(null, 404, "Falha ao atualizar");
 
-                existed.Data.UpdatedAt = DateTime.UtcNow;
-                existed.Data.UpdatedBy = request.UpdatedBy;
+                existed.UpdatedAt = DateTime.UtcNow;
+                existed.UpdatedBy = request.UpdatedBy;
 
-                ResponseApi<Attachment?> response = await repository.UpdateAsync(existed.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                Attachment? response = await repository.UpdateAsync(existed);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
-                return new(response.Data, 200, "Atualizado com sucesso");
+                return new(response, 200, "Atualizado com sucesso");
             }
             catch (Exception ex)
             {
@@ -110,15 +177,22 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<Attachment> attachment = await repository.DeleteAsync(request);
-                if (!attachment.IsSuccess) return new(null, 400, attachment.Message);
-                return new(attachment.Data, 204, "Anexo excluído com sucesso");
+                Attachment? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Anexo não encontrado");
+
+                entity.Deleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+                entity.DeletedBy = request.DeletedBy;
+
+                await repository.DeleteAsync(entity);
+
+                return new(entity, 204, "Anexo excluído com sucesso");
             }
             catch (Exception ex)
             {
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        #endregion        
+        #endregion
     }
 }

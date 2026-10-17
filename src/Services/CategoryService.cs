@@ -1,8 +1,10 @@
 using api_finances.src.Interfaces;
+using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
 using api_finances.src.Shared.Utils;
+using MongoDB.Bson;
 
 namespace api_finances.src.Services
 {
@@ -15,10 +17,28 @@ namespace api_finances.src.Services
         {
             try
             {
-                PaginationUtil<api_finances.src.Models.Category> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetAllAsync(pagination);
-                int count = await repository.GetCountDocumentsAsync(pagination);
-                PaginationApi<List<dynamic>> data = new(categories.Data, count, pagination.PageNumber, pagination.PageSize);
+                PaginationUtil<Category> pagination = new(request.QueryParams);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$skip", pagination.Skip),
+                    new("$limit", pagination.Limit),
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"code", 1},
+                        {"type", 1},
+                        {"active", 1},
+                        {"createdAt", 1}
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetAllAsync(pipeline);
+                int count = await repository.GetCountDocumentsAsync(pipeline);
+                PaginationApi<List<dynamic>> data = new(entities, count, pagination.PageNumber, pagination.PageSize);
                 return new(data, 200, "Categorias listados com sucesso");
             }
             catch (Exception ex)
@@ -30,9 +50,24 @@ namespace api_finances.src.Services
         {
             try
             {
-                PaginationUtil<api_finances.src.Models.Category> pagination = new(request.QueryParams);
-                ResponseApi<List<dynamic>> categories = await repository.GetSelectAsync(pagination);
-                return new(categories.Data, 200, "Categorias listados com sucesso");
+                PaginationUtil<Category> pagination = new(request.QueryParams);
+                BsonDocument[] pipeline = [
+                    new("$match", pagination.PipelineFilter),
+                    new("$sort", pagination.PipelineSort),
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                        {"id", new BsonDocument("$toString", "$_id")},
+                        {"name", 1},
+                        {"code", 1},
+                        {"type", 1},
+                        {"active", 1}
+                    }),
+                    new("$sort", pagination.PipelineSort),
+                ];
+
+                List<dynamic> entities = await repository.GetSelectAsync(pipeline);
+                return new(entities, 200, "Categorias listados com sucesso");
             }
             catch (Exception ex)
             {
@@ -43,9 +78,24 @@ namespace api_finances.src.Services
         {
             try
             {
-                ResponseApi<dynamic?> category = await repository.GetByIdAggregateAsync(id);
-                if (category.Data is null) return new(null, 404, "Categoria não encontrado");
-                return new(category.Data, 200, "Categoria encontrado");
+                BsonDocument[] pipeline = [
+                    new("$match", new BsonDocument{
+                        {"_id", new ObjectId(id)},
+                        {"deleted", false}
+                    }),
+                    new("$addFields", new BsonDocument
+                    {
+                        {"id", new BsonDocument("$toString", "$_id")}
+                    }),
+                    new("$project", new BsonDocument
+                    {
+                        {"_id", 0},
+                    }),
+                ];
+
+                dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
+                if (entity is null) return new(null, 404, "Categoria não encontrado");
+                return new(entity, 200, "Categoria encontrado");
             }
             catch (Exception ex)
             {
@@ -55,12 +105,12 @@ namespace api_finances.src.Services
         #endregion
 
         #region CREATE
-        public async Task<ResponseApi<api_finances.src.Models.Category?>> CreateAsync(CreateCategoryRequest request)
+        public async Task<ResponseApi<Category?>> CreateAsync(CreateCategoryRequest request)
         {
             try
             {
                 long code = await repository.GetNextCode(request.CreatedBy);
-                api_finances.src.Models.Category category = new()
+                Category category = new()
                 {
                     Name = request.Name,
                     Code = code.ToString()!.PadLeft(6, '0'),
@@ -68,35 +118,34 @@ namespace api_finances.src.Services
                     Type = request.Type
                 };
 
-                ResponseApi<api_finances.src.Models.Category?> response = await repository.CreateAsync(category);
-                if (response.Data is null) return new(null, 400, "Falha ao criar conta.");
+                Category? response = await repository.CreateAsync(category);
+                if (response is null) return new(null, 400, "Falha ao criar conta.");
 
-                return new(response.Data, 201, "Categoria criado com sucesso.");
+                return new(response, 201, "Categoria criado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
-
         #endregion
 
         #region UPDATE
-        public async Task<ResponseApi<api_finances.src.Models.Category?>> UpdateAsync(UpdateCategoryRequest request)
+        public async Task<ResponseApi<Category?>> UpdateAsync(UpdateCategoryRequest request)
         {
             try
             {
-                ResponseApi<api_finances.src.Models.Category?> category = await repository.GetByIdAsync(request.Id);
-                if (category.Data is null) return new(null, 404, "Falha ao atualizar");
+                Category? existed = await repository.GetByIdAsync(request.Id);
+                if (existed is null) return new(null, 404, "Falha ao atualizar");
 
-                category.Data.UpdatedAt = DateTime.UtcNow;
-                category.Data.Name = request.Name;
-                category.Data.Type = request.Type;
+                existed.UpdatedAt = DateTime.UtcNow;
+                existed.Name = request.Name;
+                existed.Type = request.Type;
 
-                ResponseApi<api_finances.src.Models.Category?> response = await repository.UpdateAsync(category.Data);
-                if (!response.IsSuccess) return new(null, 400, "Falha ao atualizar");
+                Category? response = await repository.UpdateAsync(existed);
+                if (response is null) return new(null, 400, "Falha ao atualizar");
 
-                return new(response.Data, 200, "Atualizado com sucesso");
+                return new(response, 200, "Atualizado com sucesso");
             }
             catch (Exception ex)
             {
@@ -106,19 +155,26 @@ namespace api_finances.src.Services
         #endregion
 
         #region DELETE
-        public async Task<ResponseApi<api_finances.src.Models.Category>> DeleteAsync(DeleteRequest request)
+        public async Task<ResponseApi<Category>> DeleteAsync(DeleteRequest request)
         {
             try
             {
-                ResponseApi<api_finances.src.Models.Category> category = await repository.DeleteAsync(request);
-                if (!category.IsSuccess) return new(null, 400, category.Message);
-                return new(category.Data, 204, "Categoria excluído com sucesso");
+                Category? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Categoria não encontrado");
+
+                entity.Deleted = true;
+                entity.DeletedAt = DateTime.UtcNow;
+                entity.DeletedBy = request.DeletedBy;
+
+                await repository.DeleteAsync(entity);
+
+                return new(entity, 204, "Categoria excluído com sucesso");
             }
             catch (Exception ex)
             {
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
-        #endregion        
+        #endregion
     }
 }

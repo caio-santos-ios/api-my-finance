@@ -73,8 +73,7 @@ namespace api_finances.src.Services
             {
                 PaginationUtil<Dashboard> pagination = new(request.QueryParams);
 
-                List<BsonDocument> pipeline = new()
-                {
+                BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
                     new("$sort", pagination.PipelineSort),
                     new("$skip", pagination.Skip),
@@ -92,7 +91,7 @@ namespace api_finances.src.Services
                         {"createdAt", 1},
                     }),
                     new("$sort", pagination.PipelineSort),
-                };
+                ];
 
                 List<dynamic> entities = await repository.GetAllAsync(pipeline);
                 int count = await repository.GetCountDocumentsAsync(pipeline);
@@ -109,8 +108,7 @@ namespace api_finances.src.Services
         {
             try
             {
-                List<BsonDocument> pipeline = new()
-                {
+                BsonDocument[] pipeline = [
                     new("$match", new BsonDocument
                     {
                         {"_id", new ObjectId(id)},
@@ -126,7 +124,7 @@ namespace api_finances.src.Services
                     {
                         {"_id", 0}
                     }),
-                };
+                ];
 
                 dynamic? entity = await repository.GetByIdAggregateAsync(pipeline);
                 if (entity is null) return new(null, 404, "Operação não encontrado");
@@ -183,9 +181,9 @@ namespace api_finances.src.Services
 
                 return new(response, 201, "Dashboard criado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde - {ex.Message}");
             }
         }
         #endregion
@@ -210,9 +208,9 @@ namespace api_finances.src.Services
 
                 return new(response, 200, "Dashboard atualizado com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
         #endregion
@@ -221,21 +219,20 @@ namespace api_finances.src.Services
         {
             try
             {
-                Dashboard? dashboard = await repository.GetByIdAsync(request.Id);
-                if (dashboard is null) return new(null, 404, "Dashboard não encontrado.");
+                Dashboard? entity = await repository.GetByIdAsync(request.Id);
+                if (entity is null) return new(null, 404, "Dashboard não encontrado.");
 
-                dashboard.Deleted = true;
-                dashboard.DeletedBy = request.DeletedBy;
-                dashboard.DeletedAt = DateTime.Now;
+                entity.Deleted = true;
+                entity.DeletedBy = request.DeletedBy;
+                entity.DeletedAt = DateTime.UtcNow;
 
-                Dashboard? response = await repository.UpdateAsync(dashboard);
-                if (response is null) return new(null, 400, "Falha ao excluir dashboard.");
+                await repository.DeleteAsync(entity);
 
-                return new(response, 204, "Dashboard excluido com sucesso.");
+                return new(entity, 204, "Dashboard excluido com sucesso.");
             }
-            catch
+            catch (Exception ex)
             {
-                return new(null, 500, "Ocorreu um erro inesperado. Por favor, tente novamente mais tarde");
+                return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
             }
         }
         #endregion

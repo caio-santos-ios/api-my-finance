@@ -5,10 +5,11 @@ namespace api_finances.src.Interfaces
 {
     public interface IGenericTableRepository
     {
-        Task<List<dynamic>> GetSelectAsync(List<BsonDocument> pipeline);
+        Task<List<dynamic>> GetSelectAsync(BsonDocument[] pipeline);
         Task<GenericTable?> GetByIdAsync(string id);
         Task<long> NextCodeAsync(string table, string userId);
-        Task<GenericTable> CreateAsync(GenericTable entity);
-        Task<GenericTable> UpdateAsync(GenericTable entity);
+        Task<GenericTable?> CreateAsync(GenericTable entity);
+        Task<GenericTable?> UpdateAsync(GenericTable entity);
+        Task<GenericTable> DeleteAsync(GenericTable entity);
     }
 }
