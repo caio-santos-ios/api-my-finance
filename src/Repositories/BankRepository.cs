@@ -43,8 +43,9 @@ namespace api_finances.src.Repository
         }
         public async Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline)
         {
-            List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(pipeline).ToListAsync();
-            return results.Select(doc => BsonSerializer.Deserialize<dynamic>(doc)).Count();
+            BsonDocument[] countPipeline = pipeline.Where(x => !x.Contains("$skip") && !x.Contains("$limit")).ToArray();
+            List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(countPipeline).ToListAsync();
+            return results.Count;
         }
         #endregion
         #region CREATE
