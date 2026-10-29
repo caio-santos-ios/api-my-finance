@@ -31,6 +31,7 @@ namespace api_finances.src.Services
                     }),
 
                     MongoUtil.Lookup("operations", ["$id"], ["$bankId"], "_operations", [["deleted", false]]),
+                    MongoUtil.Lookup("operations", ["$id"], ["$destinationBankId"], "_incomingTransfers", [["deleted", false], ["type", "transfer"]]),
 
                     new("$project", new BsonDocument
                     {
@@ -42,33 +43,48 @@ namespace api_finances.src.Services
                         {"createdAt", 1},
                         {"balance", new BsonDocument("$round", new BsonArray
                             {
-                                new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                new BsonDocument("$add", new BsonArray
                                 {
-                                    {"input", "$_operations"},
-                                    {"as", "op"},
-                                    {"in", new BsonDocument("$cond", new BsonArray
+                                    new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
                                     {
-                                        new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
-                                        new BsonDocument("$convert", new BsonDocument
+                                        {"input", "$_operations"},
+                                        {"as", "op"},
+                                        {"in", new BsonDocument("$cond", new BsonArray
                                         {
-                                            {"input", "$$op.value"},
-                                            {"to", "double"},
-                                            {"onError", 0},
-                                            {"onNull", 0}
-                                        }),
-                                        new BsonDocument("$multiply", new BsonArray
-                                        {
-                                            -1,
+                                            new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
                                             new BsonDocument("$convert", new BsonDocument
                                             {
                                                 {"input", "$$op.value"},
                                                 {"to", "double"},
                                                 {"onError", 0},
                                                 {"onNull", 0}
+                                            }),
+                                            new BsonDocument("$multiply", new BsonArray
+                                            {
+                                                -1,
+                                                new BsonDocument("$convert", new BsonDocument
+                                                {
+                                                    {"input", "$$op.value"},
+                                                    {"to", "double"},
+                                                    {"onError", 0},
+                                                    {"onNull", 0}
+                                                })
                                             })
-                                        })
-                                    })}
-                                })),
+                                        })}
+                                    })),
+                                    new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                    {
+                                        {"input", "$_incomingTransfers"},
+                                        {"as", "op"},
+                                        {"in", new BsonDocument("$convert", new BsonDocument
+                                        {
+                                            {"input", "$$op.value"},
+                                            {"to", "double"},
+                                            {"onError", 0},
+                                            {"onNull", 0}
+                                        })}
+                                    }))
+                                }),
                                 2
                             })},
                     }),
@@ -100,6 +116,7 @@ namespace api_finances.src.Services
                     }),
 
                     MongoUtil.Lookup("operations", ["$id"], ["$bankId"], "_operations", [["deleted", false]]),
+                    MongoUtil.Lookup("operations", ["$id"], ["$destinationBankId"], "_incomingTransfers", [["deleted", false], ["type", "transfer"]]),
 
                     new("$project", new BsonDocument
                     {
@@ -111,33 +128,48 @@ namespace api_finances.src.Services
                         {"createdAt", 1},
                         {"balance", new BsonDocument("$round", new BsonArray
                             {
-                                new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                new BsonDocument("$add", new BsonArray
                                 {
-                                    {"input", "$_operations"},
-                                    {"as", "op"},
-                                    {"in", new BsonDocument("$cond", new BsonArray
+                                    new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
                                     {
-                                        new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
-                                        new BsonDocument("$convert", new BsonDocument
+                                        {"input", "$_operations"},
+                                        {"as", "op"},
+                                        {"in", new BsonDocument("$cond", new BsonArray
                                         {
-                                            {"input", "$$op.value"},
-                                            {"to", "double"},
-                                            {"onError", 0},
-                                            {"onNull", 0}
-                                        }),
-                                        new BsonDocument("$multiply", new BsonArray
-                                        {
-                                            -1,
+                                            new BsonDocument("$eq", new BsonArray { "$$op.type", "income" }),
                                             new BsonDocument("$convert", new BsonDocument
                                             {
                                                 {"input", "$$op.value"},
                                                 {"to", "double"},
                                                 {"onError", 0},
                                                 {"onNull", 0}
+                                            }),
+                                            new BsonDocument("$multiply", new BsonArray
+                                            {
+                                                -1,
+                                                new BsonDocument("$convert", new BsonDocument
+                                                {
+                                                    {"input", "$$op.value"},
+                                                    {"to", "double"},
+                                                    {"onError", 0},
+                                                    {"onNull", 0}
+                                                })
                                             })
-                                        })
-                                    })}
-                                })),
+                                        })}
+                                    })),
+                                    new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
+                                    {
+                                        {"input", "$_incomingTransfers"},
+                                        {"as", "op"},
+                                        {"in", new BsonDocument("$convert", new BsonDocument
+                                        {
+                                            {"input", "$$op.value"},
+                                            {"to", "double"},
+                                            {"onError", 0},
+                                            {"onNull", 0}
+                                        })}
+                                    }))
+                                }),
                                 2
                             })},
                     }),
