@@ -119,5 +119,21 @@ namespace api_finances.src.Controllers
             ResponseApi<bool> response = await service.DeleteValuationAsync(id, valuationId, UserId);
             return StatusCode(response.StatusCode, response);
         }
+
+        [Authorize]
+        [HttpPatch("{id}/dispose")]
+        public async Task<IActionResult> Dispose(string id, [FromBody] Requests.Asset.DisposeAssetRequest request)
+        {
+            ResponseApi<Asset?> response = await service.DisposeAsync(id, request, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
+        [HttpPatch("{id}/reactivate")]
+        public async Task<IActionResult> Reactivate(string id)
+        {
+            ResponseApi<Asset?> response = await service.ReactivateAsync(id, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
     }
 }

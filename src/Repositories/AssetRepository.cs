@@ -61,9 +61,9 @@ namespace api_finances.src.Repository
         {
             if (string.IsNullOrEmpty(userId))
             {
-                return await context.Assets.Find(x => !x.Deleted).ToListAsync();
+                return await context.Assets.Find(x => !x.Deleted && !x.Disposed).ToListAsync();
             }
-            return await context.Assets.Find(x => !x.Deleted && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
+            return await context.Assets.Find(x => !x.Deleted && !x.Disposed && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
         }
     }
 }

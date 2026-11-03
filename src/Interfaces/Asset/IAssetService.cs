@@ -17,5 +17,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<AssetValuation?>> AddValuationAsync(string assetId, Requests.Asset.AddAssetValuationRequest request);
         Task<ResponseApi<AssetValuation?>> UpdateValuationAsync(string assetId, string valuationId, Requests.Asset.UpdateAssetValuationRequest request);
         Task<ResponseApi<bool>> DeleteValuationAsync(string assetId, string valuationId, string userId);
+        Task<ResponseApi<Asset?>> DisposeAsync(string id, Requests.Asset.DisposeAssetRequest request, string userId);
+        Task<ResponseApi<Asset?>> ReactivateAsync(string id, string userId);
     }
 }

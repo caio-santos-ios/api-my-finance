@@ -26,5 +26,17 @@ namespace api_finances.src.Models
 
         [BsonElement("description")]
         public string Description { get; set; } = string.Empty;
+
+        [BsonElement("disposed")]
+        public bool Disposed { get; set; } = false;
+
+        [BsonElement("disposalDate")]
+        public DateTime? DisposalDate { get; set; }
+
+        [BsonElement("disposalValue")]
+        public decimal? DisposalValue { get; set; }
+
+        [BsonElement("disposalReason")]
+        public string DisposalReason { get; set; } = string.Empty;
     }
 }

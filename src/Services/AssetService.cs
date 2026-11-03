@@ -11,7 +11,8 @@ namespace api_finances.src.Services
 {
     public class AssetService(
         IAssetRepository repository,
-        IAssetValuationRepository valuationRepository
+        IAssetValuationRepository valuationRepository,
+        IOperationRepository operationRepository
     ) : IAssetService
     {
         public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
@@ -34,6 +35,10 @@ namespace api_finances.src.Services
                         {"currentValue", 1},
                         {"acquisitionDate", 1},
                         {"description", 1},
+                        {"disposed", 1},
+                        {"disposalDate", 1},
+                        {"disposalValue", 1},
+                        {"disposalReason", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     })
@@ -97,6 +102,10 @@ namespace api_finances.src.Services
                         {"currentValue", 1},
                         {"acquisitionDate", 1},
                         {"description", 1},
+                        {"disposed", 1},
+                        {"disposalDate", 1},
+                        {"disposalValue", 1},
+                        {"disposalReason", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     })
@@ -300,6 +309,70 @@ namespace api_finances.src.Services
             catch (Exception ex)
             {
                 return new(false, 500, $"Ocorreu um erro inesperado - {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<Asset?>> DisposeAsync(string id, Requests.Asset.DisposeAssetRequest request, string userId)
+        {
+            try
+            {
+                Asset? asset = await repository.GetByIdAsync(id);
+                if (asset is null) return new(null, 404, "Bem não encontrado.");
+
+                asset.Disposed = true;
+                asset.DisposalDate = request.DisposalDate ?? DateTime.UtcNow;
+                asset.DisposalValue = request.DisposalValue;
+                asset.DisposalReason = request.DisposalReason;
+                asset.UpdatedAt = DateTime.UtcNow;
+                asset.UpdatedBy = userId;
+
+                Asset? updated = await repository.UpdateAsync(asset);
+
+                if (request.CreateIncomeOperation && (request.DisposalValue ?? 0) > 0 && !string.IsNullOrEmpty(request.BankId))
+                {
+                    Operation op = new()
+                    {
+                        Description = $"Venda/Desfazimento de bem - {asset.Name}",
+                        Value = request.DisposalValue!.Value,
+                        Type = "income",
+                        BankId = request.BankId,
+                        CreatedAt = request.DisposalDate ?? DateTime.UtcNow,
+                        CreatedBy = userId,
+                        Origin = "asset",
+                        OriginId = asset.Id,
+                        Active = true
+                    };
+                    await operationRepository.CreateAsync(op);
+                }
+
+                return new(updated, 200, "Desfazimento do bem registrado com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Ocorreu um erro inesperado - {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<Asset?>> ReactivateAsync(string id, string userId)
+        {
+            try
+            {
+                Asset? asset = await repository.GetByIdAsync(id);
+                if (asset is null) return new(null, 404, "Bem não encontrado.");
+
+                asset.Disposed = false;
+                asset.DisposalDate = null;
+                asset.DisposalValue = null;
+                asset.DisposalReason = string.Empty;
+                asset.UpdatedAt = DateTime.UtcNow;
+                asset.UpdatedBy = userId;
+
+                Asset? updated = await repository.UpdateAsync(asset);
+                return new(updated, 200, "Bem reativado com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Ocorreu um erro inesperado - {ex.Message}");
             }
         }
 
