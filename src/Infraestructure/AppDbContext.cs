@@ -41,6 +41,12 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<Importation> Importations => Database.GetCollection<Importation>("importations");
         public IMongoCollection<Budget> Budgets => Database.GetCollection<Budget>("budgets");
         public IMongoCollection<Dashboard> Dashboards => Database.GetCollection<Dashboard>("dashboards");
+        public IMongoCollection<Asset> Assets => Database.GetCollection<Asset>("assets");
+        public IMongoCollection<AssetValuation> AssetValuations => Database.GetCollection<AssetValuation>("asset_valuations");
+        public IMongoCollection<Debt> Debts => Database.GetCollection<Debt>("debts");
+        public IMongoCollection<DebtPayment> DebtPayments => Database.GetCollection<DebtPayment>("debt_payments");
+        public IMongoCollection<RecurringTransaction> RecurringTransactions => Database.GetCollection<RecurringTransaction>("recurring_transactions");
+        public IMongoCollection<Goal> Goals => Database.GetCollection<Goal>("goals");
+        public IMongoCollection<GoalTransaction> GoalTransactions => Database.GetCollection<GoalTransaction>("goal_transactions");
     }
 }
-

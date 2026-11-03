@@ -62,6 +62,19 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IBudgetService, BudgetService>();
             builder.Services.AddTransient<IBudgetRepository, BudgetRepository>();
 
+            builder.Services.AddTransient<IAssetService, AssetService>();
+            builder.Services.AddTransient<IAssetRepository, AssetRepository>();
+            builder.Services.AddTransient<IAssetValuationRepository, AssetValuationRepository>();
+
+            builder.Services.AddTransient<IDebtService, DebtService>();
+            builder.Services.AddTransient<IDebtRepository, DebtRepository>();
+            builder.Services.AddTransient<IDebtPaymentRepository, DebtPaymentRepository>();
+
+            builder.Services.AddTransient<IPatrimonyService, PatrimonyService>();
+
+            builder.Services.AddTransient<IRecurringTransactionService, RecurringTransactionService>();
+            builder.Services.AddTransient<IRecurringTransactionRepository, RecurringTransactionRepository>();
+
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
             builder.Services.AddHostedService<RecurringOperationsWork>();
 
