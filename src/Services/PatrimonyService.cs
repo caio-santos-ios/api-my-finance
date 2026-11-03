@@ -20,26 +20,52 @@ public class PatrimonyService(
             List<Asset> assets = await assetRepository.GetActiveByUserAsync(userId);
             List<Debt> debts = await debtRepository.GetActiveByUserAsync(userId);
 
-            Dictionary<string, StringValues> query = new()
-            {
-                ["createdBy"] = userId,
-                ["pageSize"] = "100"
-            };
-
-            var banksResponse = await bankService.GetAllAsync(new(new QueryCollection(query)));
             decimal totalBankBalance = 0;
-            List<dynamic>? banksList = banksResponse.Data?.Data;
-            if (banksList != null)
+            try
             {
-                foreach (var item in banksList)
+                Dictionary<string, StringValues> query = new()
                 {
-                    var dict = item as IDictionary<string, object>;
-                    if (dict != null && dict.TryGetValue("balance", out var val) && val != null)
+                    ["pageSize"] = "100"
+                };
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    query["createdBy"] = userId;
+                }
+
+                var banksResponse = await bankService.GetAllAsync(new(new QueryCollection(query)));
+                List<dynamic>? banksList = banksResponse.Data?.Data;
+                if (banksList != null)
+                {
+                    foreach (var item in banksList)
                     {
-                        totalBankBalance += Convert.ToDecimal(val);
+                        if (item is MongoDB.Bson.BsonDocument doc)
+                        {
+                            if (doc.Contains("balance") && !doc["balance"].IsBsonNull)
+                            {
+                                totalBankBalance += Convert.ToDecimal(doc["balance"].ToDouble());
+                            }
+                        }
+                        else if (item is IDictionary<string, object> dict && dict.TryGetValue("balance", out var val) && val != null)
+                        {
+                            totalBankBalance += Convert.ToDecimal(val);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                string json = System.Text.Json.JsonSerializer.Serialize(item);
+                                using var jsonDoc = System.Text.Json.JsonDocument.Parse(json);
+                                if (jsonDoc.RootElement.TryGetProperty("balance", out var prop))
+                                {
+                                    totalBankBalance += prop.GetDecimal();
+                                }
+                            }
+                            catch { }
+                        }
                     }
                 }
             }
+            catch { }
 
             decimal totalAssets = assets.Sum(x => x.CurrentValue);
             decimal totalDebts = debts.Sum(x => x.RemainingAmount);

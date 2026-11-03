@@ -14,7 +14,10 @@ namespace api_finances.src.Controllers
     [ApiController]
     public class DebtController(IDebtService service) : ControllerBase
     {
-        private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("id")?.Value
+            ?? "";
 
         [Authorize]
         [HttpGet]

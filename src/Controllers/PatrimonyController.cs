@@ -11,7 +11,10 @@ namespace api_finances.src.Controllers;
 [ApiController]
 public class PatrimonyController(IPatrimonyService service) : ControllerBase
 {
-    private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+    private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? User.FindFirst("sub")?.Value
+        ?? User.FindFirst("id")?.Value
+        ?? "";
 
     [Authorize]
     [HttpGet("summary")]

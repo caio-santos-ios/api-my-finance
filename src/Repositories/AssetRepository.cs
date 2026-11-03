@@ -59,7 +59,11 @@ namespace api_finances.src.Repository
 
         public async Task<List<Asset>> GetActiveByUserAsync(string userId)
         {
-            return await context.Assets.Find(x => !x.Deleted && x.CreatedBy == userId).ToListAsync();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return await context.Assets.Find(x => !x.Deleted).ToListAsync();
+            }
+            return await context.Assets.Find(x => !x.Deleted && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
         }
     }
 }
