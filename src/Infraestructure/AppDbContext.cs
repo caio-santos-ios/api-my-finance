@@ -49,5 +49,7 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<Goal> Goals => Database.GetCollection<Goal>("goals");
         public IMongoCollection<GoalTransaction> GoalTransactions => Database.GetCollection<GoalTransaction>("goal_transactions");
         public IMongoCollection<LifeCostSettings> LifeCostSettings => Database.GetCollection<LifeCostSettings>("life_cost_settings");
+        public IMongoCollection<InvestmentAsset> InvestmentAssets => Database.GetCollection<InvestmentAsset>("investment_assets");
+        public IMongoCollection<InvestmentTransaction> InvestmentTransactions => Database.GetCollection<InvestmentTransaction>("investment_transactions");
     }
 }

@@ -75,6 +75,10 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<ILifeCostRepository, LifeCostRepository>();
             builder.Services.AddTransient<ILifeCostService, LifeCostService>();
 
+            builder.Services.AddTransient<IInvestmentAssetRepository, InvestmentAssetRepository>();
+            builder.Services.AddTransient<IInvestmentTransactionRepository, InvestmentTransactionRepository>();
+            builder.Services.AddTransient<IInvestmentService, InvestmentService>();
+
             builder.Services.AddTransient<IRecurringTransactionService, RecurringTransactionService>();
             builder.Services.AddTransient<IRecurringTransactionRepository, RecurringTransactionRepository>();
 
