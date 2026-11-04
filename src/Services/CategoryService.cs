@@ -30,6 +30,8 @@ namespace api_finances.src.Services
                         {"name", 1},
                         {"code", 1},
                         {"type", 1},
+                        {"lifeCostClass", 1},
+                        {"lifeCostRecurrence", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     }),
@@ -61,6 +63,8 @@ namespace api_finances.src.Services
                         {"name", 1},
                         {"code", 1},
                         {"type", 1},
+                        {"lifeCostClass", 1},
+                        {"lifeCostRecurrence", 1},
                         {"active", 1}
                     }),
                     new("$sort", pagination.PipelineSort),
@@ -115,7 +119,9 @@ namespace api_finances.src.Services
                     Name = request.Name,
                     Code = code.ToString()!.PadLeft(6, '0'),
                     CreatedBy = request.CreatedBy,
-                    Type = request.Type
+                    Type = request.Type,
+                    LifeCostClass = string.IsNullOrWhiteSpace(request.LifeCostClass) ? "DISCRETIONARY" : request.LifeCostClass.Trim().ToUpperInvariant(),
+                    LifeCostRecurrence = string.IsNullOrWhiteSpace(request.LifeCostRecurrence) ? "VARIABLE" : request.LifeCostRecurrence.Trim().ToUpperInvariant()
                 };
 
                 Category? response = await repository.CreateAsync(category);
@@ -141,6 +147,10 @@ namespace api_finances.src.Services
                 existed.UpdatedAt = DateTime.UtcNow;
                 existed.Name = request.Name;
                 existed.Type = request.Type;
+                if (!string.IsNullOrWhiteSpace(request.LifeCostClass))
+                    existed.LifeCostClass = request.LifeCostClass.Trim().ToUpperInvariant();
+                if (!string.IsNullOrWhiteSpace(request.LifeCostRecurrence))
+                    existed.LifeCostRecurrence = request.LifeCostRecurrence.Trim().ToUpperInvariant();
 
                 Category? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar");

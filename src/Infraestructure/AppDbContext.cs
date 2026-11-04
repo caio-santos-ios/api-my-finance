@@ -48,5 +48,6 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<RecurringTransaction> RecurringTransactions => Database.GetCollection<RecurringTransaction>("recurring_transactions");
         public IMongoCollection<Goal> Goals => Database.GetCollection<Goal>("goals");
         public IMongoCollection<GoalTransaction> GoalTransactions => Database.GetCollection<GoalTransaction>("goal_transactions");
+        public IMongoCollection<LifeCostSettings> LifeCostSettings => Database.GetCollection<LifeCostSettings>("life_cost_settings");
     }
 }

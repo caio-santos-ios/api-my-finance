@@ -10,12 +10,18 @@ namespace api_finances.src.Models
         public string Id { get; set; } = string.Empty;
         
         [BsonElement("name")]
-        public string Name {get;set;} = string.Empty;
+        public string Name { get; set; } = string.Empty;
 
         [BsonElement("code")]
-        public string Code {get;set;} = string.Empty;
+        public string Code { get; set; } = string.Empty;
 
         [BsonElement("type")]
-        public string Type {get;set;} = string.Empty;
+        public string Type { get; set; } = string.Empty;
+
+        [BsonElement("lifeCostClass")]
+        public string LifeCostClass { get; set; } = "DISCRETIONARY";
+
+        [BsonElement("lifeCostRecurrence")]
+        public string LifeCostRecurrence { get; set; } = "VARIABLE";
     }
 }

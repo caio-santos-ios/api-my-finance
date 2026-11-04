@@ -9,5 +9,9 @@ namespace api_finances.src.Requests
 
         [Required(ErrorMessage = "O Tipo é obrigatório.")]
         public string Type { get; set; } = string.Empty;
+
+        public string? LifeCostClass { get; set; }
+
+        public string? LifeCostRecurrence { get; set; }
     }
 }
