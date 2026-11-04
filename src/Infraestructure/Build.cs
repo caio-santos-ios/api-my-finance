@@ -82,6 +82,9 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IRecurringTransactionService, RecurringTransactionService>();
             builder.Services.AddTransient<IRecurringTransactionRepository, RecurringTransactionRepository>();
 
+            builder.Services.AddTransient<IGoalRepository, GoalRepository>();
+            builder.Services.AddTransient<IGoalService, GoalService>();
+
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
             builder.Services.AddHostedService<RecurringOperationsWork>();
 
