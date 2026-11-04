@@ -93,5 +93,13 @@ namespace api_finances.src.Controllers
             ResponseApi<List<LifeCostCategoryClassificationItem>> response = await service.GetCategoriesClassificationAsync(UserId);
             return StatusCode(response.StatusCode, response.Result);
         }
+
+        [Authorize]
+        [HttpGet("monthly/operations")]
+        public async Task<IActionResult> GetMonthlyOperations([FromQuery] int year, [FromQuery] int month, [FromQuery] string type = "net")
+        {
+            ResponseApi<List<LifeCostOperationItemDTO>> response = await service.GetMonthlyOperationsAsync(UserId, year, month, type);
+            return StatusCode(response.StatusCode, response.Result);
+        }
     }
 }

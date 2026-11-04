@@ -55,4 +55,18 @@ namespace api_finances.src.Models
         public string LifeCostRecurrence { get; set; } = "VARIABLE";
         public bool IsUnclassified { get; set; }
     }
+
+    public class LifeCostOperationItemDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public decimal Value { get; set; }
+        public string Type { get; set; } = string.Empty;
+        public string CategoryId { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+        public string LifeCostClass { get; set; } = string.Empty;
+        public string BankId { get; set; } = string.Empty;
+        public string BankName { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+    }
 }

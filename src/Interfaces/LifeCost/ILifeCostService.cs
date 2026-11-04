@@ -16,5 +16,6 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<bool>> DeleteAdjustmentAsync(string userId, string adjustmentId);
         Task<ResponseApi<Category>> UpdateCategoryClassificationAsync(string categoryId, UpdateCategoryClassificationRequest request);
         Task<ResponseApi<List<LifeCostCategoryClassificationItem>>> GetCategoriesClassificationAsync(string userId);
+        Task<ResponseApi<List<LifeCostOperationItemDTO>>> GetMonthlyOperationsAsync(string userId, int year, int month, string type);
     }
 }

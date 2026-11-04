@@ -469,5 +469,131 @@ namespace api_finances.src.Services
                 return new(null, 500, $"Erro ao comparar períodos: {ex.Message}");
             }
         }
+
+        public async Task<ResponseApi<List<LifeCostOperationItemDTO>>> GetMonthlyOperationsAsync(string userId, int year, int month, string type)
+        {
+            try
+            {
+                LifeCostSettings? settings = await lifeCostRepository.GetByUserIdAsync(userId);
+                settings ??= new LifeCostSettings { UserId = userId, CreatedBy = userId };
+
+                DateTime start = new(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+                DateTime end = start.AddMonths(1);
+
+                string normType = (type ?? "net").Trim().ToLowerInvariant();
+
+                if (normType == "adjustments" || normType == "ajustes")
+                {
+                    List<MonthlyAdjustment> adjustments = settings.MonthlyAdjustments
+                        .Where(a => a.Year == year && a.Month == month)
+                        .ToList();
+
+                    List<LifeCostOperationItemDTO> adjItems = adjustments.Select(a => new LifeCostOperationItemDTO
+                    {
+                        Id = a.Id,
+                        Description = string.IsNullOrWhiteSpace(a.Reason) ? "Ajuste manual abatido" : a.Reason,
+                        Value = a.Amount,
+                        Type = "adjustment",
+                        CategoryId = string.Empty,
+                        CategoryName = "Ajuste Abatido",
+                        LifeCostClass = "ADJUSTMENT",
+                        BankId = string.Empty,
+                        BankName = "-",
+                        CreatedAt = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc)
+                    }).ToList();
+
+                    return new(adjItems, 200, "Ajustes obtidos com sucesso");
+                }
+
+                List<Category> categories = await context.Categories
+                    .Find(x => x.CreatedBy == userId && !x.Deleted)
+                    .ToListAsync();
+                Dictionary<string, Category> catMap = categories.ToDictionary(c => c.Id, c => c);
+
+                List<Bank> banks = await context.Banks
+                    .Find(b => b.CreatedBy == userId && !b.Deleted)
+                    .ToListAsync();
+                Dictionary<string, Bank> bankMap = banks.ToDictionary(b => b.Id, b => b);
+
+                List<Operation> operations = await context.Operations
+                    .Find(x => x.CreatedBy == userId && !x.Deleted && (x.Type == "expense" || x.Type == "saida") && x.CreatedAt >= start && x.CreatedAt < end)
+                    .ToListAsync();
+
+                if (!settings.IncludeDebtPayments)
+                {
+                    operations = operations.Where(o => o.Origin != "debt" && o.Origin != "debt_payment" && o.Origin != "debt_amortization").ToList();
+                }
+
+                List<LifeCostOperationItemDTO> items = [];
+
+                foreach (Operation op in operations)
+                {
+                    string classification = "DISCRETIONARY";
+                    string catName = "-";
+                    if (!string.IsNullOrEmpty(op.CategoryId) && catMap.TryGetValue(op.CategoryId, out Category? cat))
+                    {
+                        catName = cat.Name;
+                        if (!string.IsNullOrWhiteSpace(cat.LifeCostClass))
+                            classification = cat.LifeCostClass.ToUpperInvariant();
+                    }
+
+                    bool matches = false;
+                    switch (normType)
+                    {
+                        case "essential":
+                        case "essencial":
+                            matches = classification == "ESSENTIAL";
+                            break;
+                        case "discretionary":
+                        case "discricionario":
+                        case "discricionário":
+                            matches = classification == "DISCRETIONARY";
+                            break;
+                        case "excluded":
+                        case "excluido":
+                        case "excluído":
+                            matches = classification == "EXCLUDED";
+                            break;
+                        case "net":
+                        case "liquido":
+                        case "líquido":
+                        default:
+                            matches = classification != "EXCLUDED";
+                            break;
+                    }
+
+                    if (matches)
+                    {
+                        string bankName = "-";
+                        if (!string.IsNullOrEmpty(op.BankId) && bankMap.TryGetValue(op.BankId, out Bank? bank))
+                        {
+                            bankName = bank.Name;
+                        }
+
+                        items.Add(new LifeCostOperationItemDTO
+                        {
+                            Id = op.Id,
+                            Description = op.Description ?? string.Empty,
+                            Value = op.Value,
+                            Type = op.Type ?? "expense",
+                            CategoryId = op.CategoryId ?? string.Empty,
+                            CategoryName = catName,
+                            LifeCostClass = classification,
+                            BankId = op.BankId ?? string.Empty,
+                            BankName = bankName,
+                            CreatedAt = op.CreatedAt
+                        });
+                    }
+                }
+
+                items = items.OrderByDescending(x => x.CreatedAt).ToList();
+
+                return new(items, 200, "Operações obtidas com sucesso");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao buscar operações do mês: {ex.Message}");
+            }
+        }
     }
 }
