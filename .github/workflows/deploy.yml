@@ -17,6 +17,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          timeout: 60s
+          command_timeout: 30m
           script: |
             cd /home/deployer/www/projects/my-finances/api-my-finance
             git pull origin main
