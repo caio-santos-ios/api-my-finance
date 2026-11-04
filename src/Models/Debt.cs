@@ -38,5 +38,11 @@ namespace api_finances.src.Models
 
         [BsonElement("description")]
         public string Description { get; set; } = string.Empty;
+
+        [BsonElement("settled")]
+        public bool Settled { get; set; }
+
+        [BsonElement("settledDate")]
+        public DateTime? SettledDate { get; set; }
     }
 }

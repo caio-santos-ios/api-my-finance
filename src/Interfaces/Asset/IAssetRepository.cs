@@ -14,5 +14,6 @@ namespace api_finances.src.Interfaces
         Task<Asset?> UpdateAsync(Asset entity);
         Task<Asset> DeleteAsync(Asset entity);
         Task<List<Asset>> GetActiveByUserAsync(string userId);
+        Task<int> GetDisposedCountByUserAsync(string userId);
     }
 }

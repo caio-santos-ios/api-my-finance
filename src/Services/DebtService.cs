@@ -19,7 +19,25 @@ namespace api_finances.src.Services
         {
             try
             {
-                PaginationUtil<Debt> pagination = new(request.QueryParams);
+                var queryParams = new Dictionary<string, string>(request.QueryParams);
+                string? status = null;
+                if (queryParams.TryGetValue("status", out var st))
+                {
+                    status = st;
+                    queryParams.Remove("status");
+                }
+
+                PaginationUtil<Debt> pagination = new(queryParams);
+
+                if (status == "active")
+                {
+                    pagination.PipelineFilter.Add("remainingAmount", new BsonDocument("$gt", 0));
+                }
+                else if (status == "settled")
+                {
+                    pagination.PipelineFilter.Add("remainingAmount", new BsonDocument("$lte", 0));
+                }
+
                 BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
                     new("$sort", pagination.PipelineSort),
@@ -54,6 +72,8 @@ namespace api_finances.src.Services
                         {"bankId", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"description", 1},
+                        {"settled", 1},
+                        {"settledDate", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     })
@@ -136,6 +156,8 @@ namespace api_finances.src.Services
                         {"bankId", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"description", 1},
+                        {"settled", 1},
+                        {"settledDate", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     })
@@ -160,6 +182,9 @@ namespace api_finances.src.Services
                 {
                     debt.RemainingAmount = debt.TotalAmount;
                 }
+                debt.Settled = debt.RemainingAmount <= 0;
+                if (debt.Settled) debt.SettledDate = DateTime.UtcNow;
+
                 Debt? response = await repository.CreateAsync(debt);
                 if (response is null) return new(null, 400, "Falha ao cadastrar dívida.");
 
@@ -190,6 +215,9 @@ namespace api_finances.src.Services
                 existed.DueDay = request.DueDay;
                 existed.BankId = request.BankId;
                 existed.Description = request.Description;
+                existed.Settled = existed.RemainingAmount <= 0;
+                if (existed.Settled && existed.SettledDate == null) existed.SettledDate = DateTime.UtcNow;
+                if (!existed.Settled) existed.SettledDate = null;
 
                 Debt? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar dívida.");
@@ -233,6 +261,9 @@ namespace api_finances.src.Services
                 decimal prevAmount = debt.RemainingAmount;
                 debt.RemainingAmount = Math.Max(0, debt.RemainingAmount - paymentValue);
                 debt.PaidInstallments += 1;
+                debt.Settled = debt.RemainingAmount <= 0;
+                if (debt.Settled && debt.SettledDate == null) debt.SettledDate = DateTime.UtcNow;
+                if (!debt.Settled) debt.SettledDate = null;
                 debt.UpdatedAt = DateTime.UtcNow;
                 debt.UpdatedBy = request.CreatedBy;
 
@@ -307,6 +338,10 @@ namespace api_finances.src.Services
                 {
                     debt.PaidInstallments += request.InstallmentsCount;
                 }
+
+                debt.Settled = debt.RemainingAmount <= 0;
+                if (debt.Settled && debt.SettledDate == null) debt.SettledDate = DateTime.UtcNow;
+                if (!debt.Settled) debt.SettledDate = null;
 
                 debt.UpdatedAt = DateTime.UtcNow;
                 debt.UpdatedBy = request.CreatedBy;
@@ -428,6 +463,9 @@ namespace api_finances.src.Services
 
             debt.RemainingAmount = remaining;
             debt.PaidInstallments = paidInstallments;
+            debt.Settled = debt.RemainingAmount <= 0;
+            if (debt.Settled && debt.SettledDate == null) debt.SettledDate = DateTime.UtcNow;
+            if (!debt.Settled) debt.SettledDate = null;
             debt.UpdatedAt = DateTime.UtcNow;
             await repository.UpdateAsync(debt);
         }

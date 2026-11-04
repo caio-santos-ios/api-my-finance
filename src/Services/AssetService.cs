@@ -19,7 +19,25 @@ namespace api_finances.src.Services
         {
             try
             {
-                PaginationUtil<Asset> pagination = new(request.QueryParams);
+                var queryParams = new Dictionary<string, string>(request.QueryParams);
+                string? status = null;
+                if (queryParams.TryGetValue("status", out var st))
+                {
+                    status = st;
+                    queryParams.Remove("status");
+                }
+
+                PaginationUtil<Asset> pagination = new(queryParams);
+
+                if (status == "active")
+                {
+                    pagination.PipelineFilter.Add("disposed", new BsonDocument("$ne", true));
+                }
+                else if (status == "disposed")
+                {
+                    pagination.PipelineFilter.Add("disposed", true);
+                }
+
                 BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
                     new("$sort", pagination.PipelineSort),

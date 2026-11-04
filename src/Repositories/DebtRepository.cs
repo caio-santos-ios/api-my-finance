@@ -61,9 +61,18 @@ namespace api_finances.src.Repository
         {
             if (string.IsNullOrEmpty(userId))
             {
-                return await context.Debts.Find(x => !x.Deleted).ToListAsync();
+                return await context.Debts.Find(x => !x.Deleted && x.RemainingAmount > 0).ToListAsync();
             }
-            return await context.Debts.Find(x => !x.Deleted && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
+            return await context.Debts.Find(x => !x.Deleted && x.RemainingAmount > 0 && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
+        }
+
+        public async Task<int> GetSettledCountByUserAsync(string userId)
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                return (int)await context.Debts.CountDocumentsAsync(x => !x.Deleted && x.RemainingAmount <= 0);
+            }
+            return (int)await context.Debts.CountDocumentsAsync(x => !x.Deleted && x.RemainingAmount <= 0 && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == ""));
         }
     }
 }

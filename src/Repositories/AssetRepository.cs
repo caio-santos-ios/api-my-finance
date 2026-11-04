@@ -65,5 +65,14 @@ namespace api_finances.src.Repository
             }
             return await context.Assets.Find(x => !x.Deleted && !x.Disposed && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == "")).ToListAsync();
         }
+
+        public async Task<int> GetDisposedCountByUserAsync(string userId)
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                return (int)await context.Assets.CountDocumentsAsync(x => !x.Deleted && x.Disposed);
+            }
+            return (int)await context.Assets.CountDocumentsAsync(x => !x.Deleted && x.Disposed && (x.CreatedBy == userId || x.CreatedBy == null || x.CreatedBy == ""));
+        }
     }
 }

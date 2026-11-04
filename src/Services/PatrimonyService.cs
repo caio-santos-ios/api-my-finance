@@ -71,6 +71,10 @@ public class PatrimonyService(
             decimal totalDebts = debts.Sum(x => x.RemainingAmount);
             decimal netWorth = totalBankBalance + totalAssets - totalDebts;
 
+            int disposedAssetCount = await assetRepository.GetDisposedCountByUserAsync(userId);
+            int settledDebtCount = await debtRepository.GetSettledCountByUserAsync(userId);
+            int historyCount = disposedAssetCount + settledDebtCount;
+
             var result = new
             {
                 totalBankBalance,
@@ -78,7 +82,10 @@ public class PatrimonyService(
                 totalDebts,
                 netWorth,
                 assetCount = assets.Count,
-                debtCount = debts.Count
+                debtCount = debts.Count,
+                disposedAssetCount,
+                settledDebtCount,
+                historyCount
             };
 
             return new(result, 200);

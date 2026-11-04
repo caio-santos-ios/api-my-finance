@@ -14,5 +14,6 @@ namespace api_finances.src.Interfaces
         Task<Debt?> UpdateAsync(Debt entity);
         Task<Debt> DeleteAsync(Debt entity);
         Task<List<Debt>> GetActiveByUserAsync(string userId);
+        Task<int> GetSettledCountByUserAsync(string userId);
     }
 }
