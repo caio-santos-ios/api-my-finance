@@ -32,6 +32,8 @@ namespace api_finances.src.Services
                         {"type", 1},
                         {"lifeCostClass", 1},
                         {"lifeCostRecurrence", 1},
+                        {"irTreatment", 1},
+                        {"irSubtype", 1},
                         {"active", 1},
                         {"createdAt", 1}
                     }),
@@ -65,6 +67,8 @@ namespace api_finances.src.Services
                         {"type", 1},
                         {"lifeCostClass", 1},
                         {"lifeCostRecurrence", 1},
+                        {"irTreatment", 1},
+                        {"irSubtype", 1},
                         {"active", 1}
                     }),
                     new("$sort", pagination.PipelineSort),
@@ -121,7 +125,9 @@ namespace api_finances.src.Services
                     CreatedBy = request.CreatedBy,
                     Type = request.Type,
                     LifeCostClass = string.IsNullOrWhiteSpace(request.LifeCostClass) ? "DISCRETIONARY" : request.LifeCostClass.Trim().ToUpperInvariant(),
-                    LifeCostRecurrence = string.IsNullOrWhiteSpace(request.LifeCostRecurrence) ? "VARIABLE" : request.LifeCostRecurrence.Trim().ToUpperInvariant()
+                    LifeCostRecurrence = string.IsNullOrWhiteSpace(request.LifeCostRecurrence) ? "VARIABLE" : request.LifeCostRecurrence.Trim().ToUpperInvariant(),
+                    IrTreatment = string.IsNullOrWhiteSpace(request.IrTreatment) ? "NONE" : request.IrTreatment.Trim().ToUpperInvariant(),
+                    IrSubtype = request.IrSubtype
                 };
 
                 Category? response = await repository.CreateAsync(category);
@@ -151,6 +157,10 @@ namespace api_finances.src.Services
                     existed.LifeCostClass = request.LifeCostClass.Trim().ToUpperInvariant();
                 if (!string.IsNullOrWhiteSpace(request.LifeCostRecurrence))
                     existed.LifeCostRecurrence = request.LifeCostRecurrence.Trim().ToUpperInvariant();
+                if (!string.IsNullOrWhiteSpace(request.IrTreatment))
+                    existed.IrTreatment = request.IrTreatment.Trim().ToUpperInvariant();
+                if (request.IrSubtype != null)
+                    existed.IrSubtype = request.IrSubtype;
 
                 Category? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar");

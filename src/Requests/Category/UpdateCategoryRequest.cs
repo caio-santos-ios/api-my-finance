@@ -16,5 +16,9 @@ namespace api_finances.src.Requests
         public string? LifeCostClass { get; set; }
 
         public string? LifeCostRecurrence { get; set; }
+
+        public string? IrTreatment { get; set; }
+
+        public string? IrSubtype { get; set; }
     }
 }

@@ -18,5 +18,11 @@ namespace api_finances.src.Requests
         public DateTime? AcquisitionDate { get; set; }
 
         public string Description { get; set; } = string.Empty;
+
+        public string? IrAssetCode { get; set; }
+
+        public string? IrDescription { get; set; }
+
+        public bool? IncludeInIr { get; set; }
     }
 }

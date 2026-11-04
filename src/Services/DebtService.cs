@@ -27,7 +27,24 @@ namespace api_finances.src.Services
                     queryParams.Remove("status");
                 }
 
+                string? createdBy = null;
+                if (queryParams.TryGetValue("createdBy", out var cb))
+                {
+                    createdBy = cb;
+                    queryParams.Remove("createdBy");
+                }
+
                 PaginationUtil<Debt> pagination = new(queryParams);
+
+                if (!string.IsNullOrEmpty(createdBy))
+                {
+                    pagination.PipelineFilter.Add("$or", new BsonArray
+                    {
+                        new BsonDocument("createdBy", createdBy),
+                        new BsonDocument("createdBy", BsonNull.Value),
+                        new BsonDocument("createdBy", "")
+                    });
+                }
 
                 if (status == "active")
                 {
@@ -44,18 +61,7 @@ namespace api_finances.src.Services
                     new("$skip", pagination.Skip),
                     new("$limit", pagination.Limit),
 
-                    new("$addFields", new BsonDocument
-                    {
-                        { "bankObjId", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$bankId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", BsonNull.Value },
-                                { "else", new BsonDocument("$toObjectId", "$bankId") }
-                            })
-                        }
-                    }),
-
-                    MongoUtil.Lookup("banks", ["$bankObjId"], ["$_id"], "_banks", [["deleted", false]], 1),
+                    MongoUtil.Lookup("banks", ["$bankId"], ["$_id"], "_banks", [["deleted", false]], 1),
 
                     new("$project", new BsonDocument
                     {
@@ -128,18 +134,7 @@ namespace api_finances.src.Services
                         {"deleted", false}
                     }),
 
-                    new("$addFields", new BsonDocument
-                    {
-                        { "bankObjId", new BsonDocument("$cond", new BsonDocument
-                            {
-                                { "if", new BsonDocument("$in", new BsonArray { "$bankId", new BsonArray { BsonNull.Value, "" } }) },
-                                { "then", BsonNull.Value },
-                                { "else", new BsonDocument("$toObjectId", "$bankId") }
-                            })
-                        }
-                    }),
-
-                    MongoUtil.Lookup("banks", ["$bankObjId"], ["$_id"], "_banks", [["deleted", false]], 1),
+                    MongoUtil.Lookup("banks", ["$bankId"], ["$_id"], "_banks", [["deleted", false]], 1),
 
                     new("$project", new BsonDocument
                     {

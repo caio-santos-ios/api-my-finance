@@ -27,7 +27,24 @@ namespace api_finances.src.Services
                     queryParams.Remove("status");
                 }
 
+                string? createdBy = null;
+                if (queryParams.TryGetValue("createdBy", out var cb))
+                {
+                    createdBy = cb;
+                    queryParams.Remove("createdBy");
+                }
+
                 PaginationUtil<Asset> pagination = new(queryParams);
+
+                if (!string.IsNullOrEmpty(createdBy))
+                {
+                    pagination.PipelineFilter.Add("$or", new BsonArray
+                    {
+                        new BsonDocument("createdBy", createdBy),
+                        new BsonDocument("createdBy", BsonNull.Value),
+                        new BsonDocument("createdBy", "")
+                    });
+                }
 
                 if (status == "active")
                 {
@@ -53,6 +70,9 @@ namespace api_finances.src.Services
                         {"currentValue", 1},
                         {"acquisitionDate", 1},
                         {"description", 1},
+                        {"irAssetCode", 1},
+                        {"irDescription", 1},
+                        {"includeInIr", 1},
                         {"disposed", 1},
                         {"disposalDate", 1},
                         {"disposalValue", 1},
@@ -120,6 +140,9 @@ namespace api_finances.src.Services
                         {"currentValue", 1},
                         {"acquisitionDate", 1},
                         {"description", 1},
+                        {"irAssetCode", 1},
+                        {"irDescription", 1},
+                        {"includeInIr", 1},
                         {"disposed", 1},
                         {"disposalDate", 1},
                         {"disposalValue", 1},
@@ -170,6 +193,9 @@ namespace api_finances.src.Services
                 existed.CurrentValue = request.CurrentValue;
                 existed.AcquisitionDate = request.AcquisitionDate;
                 existed.Description = request.Description;
+                existed.IrAssetCode = request.IrAssetCode;
+                existed.IrDescription = request.IrDescription;
+                if (request.IncludeInIr.HasValue) existed.IncludeInIr = request.IncludeInIr.Value;
 
                 Asset? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar bem.");
