@@ -85,6 +85,9 @@ namespace api_finances.src.Configuration
             builder.Services.AddTransient<IGoalRepository, GoalRepository>();
             builder.Services.AddTransient<IGoalService, GoalService>();
 
+            builder.Services.AddTransient<ITaxRepository, TaxRepository>();
+            builder.Services.AddTransient<ITaxService, TaxService>();
+
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
             builder.Services.AddHostedService<RecurringOperationsWork>();
 

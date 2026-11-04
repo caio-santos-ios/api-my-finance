@@ -23,5 +23,11 @@ namespace api_finances.src.Models
 
         [BsonElement("lifeCostRecurrence")]
         public string LifeCostRecurrence { get; set; } = "VARIABLE";
+
+        [BsonElement("irTreatment")]
+        public string IrTreatment { get; set; } = "NONE";
+
+        [BsonElement("irSubtype")]
+        public string? IrSubtype { get; set; }
     }
 }

@@ -38,5 +38,11 @@ namespace api_finances.src.Models
 
         [BsonElement("recurrence")]
         public string Recurrence { get; set; } = string.Empty;
+
+        [BsonElement("payeeName")]
+        public string? PayeeName { get; set; }
+
+        [BsonElement("payeeDocument")]
+        public string? PayeeDocument { get; set; }
     }
 }

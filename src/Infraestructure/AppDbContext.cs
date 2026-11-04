@@ -51,5 +51,6 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<LifeCostSettings> LifeCostSettings => Database.GetCollection<LifeCostSettings>("life_cost_settings");
         public IMongoCollection<InvestmentAsset> InvestmentAssets => Database.GetCollection<InvestmentAsset>("investment_assets");
         public IMongoCollection<InvestmentTransaction> InvestmentTransactions => Database.GetCollection<InvestmentTransaction>("investment_transactions");
+        public IMongoCollection<TaxYearSnapshot> TaxYearSnapshots => Database.GetCollection<TaxYearSnapshot>("tax_year_snapshots");
     }
 }

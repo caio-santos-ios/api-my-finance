@@ -38,5 +38,14 @@ namespace api_finances.src.Models
 
         [BsonElement("disposalReason")]
         public string DisposalReason { get; set; } = string.Empty;
+
+        [BsonElement("irAssetCode")]
+        public string? IrAssetCode { get; set; }
+
+        [BsonElement("irDescription")]
+        public string? IrDescription { get; set; }
+
+        [BsonElement("includeInIr")]
+        public bool IncludeInIr { get; set; } = true;
     }
 }
