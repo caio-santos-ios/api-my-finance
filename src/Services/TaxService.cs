@@ -33,12 +33,12 @@ namespace api_finances.src.Services
             foreach (var tx in relevant)
             {
                 string k = tx.Kind?.ToUpperInvariant() ?? "";
-                if (k == "BUY")
+                if (k == "BUY" || k == "COMPRA")
                 {
                     totalQty += tx.Quantity;
                     totalCost += tx.Amount;
                 }
-                else if (k == "SELL")
+                else if (k == "SELL" || k == "VENDA")
                 {
                     if (totalQty > 0)
                     {
@@ -83,9 +83,21 @@ namespace api_finances.src.Services
                         Source = "operation"
                     };
 
-                    if (cat.IrTreatment == "TAXABLE_INCOME") taxable.Add(item);
-                    else if (cat.IrTreatment == "EXEMPT_INCOME") exempt.Add(item);
-                    else if (cat.IrTreatment == "EXCLUSIVE_INCOME") exclusive.Add(item);
+                    string treatment = (cat.IrTreatment ?? "").Trim().ToUpperInvariant();
+                    string catNameLower = (cat.Name ?? "").Trim().ToLowerInvariant();
+                    bool isLikelyTaxable = catNameLower.Contains("sal") ||
+                                           catNameLower.Contains("remunera") ||
+                                           catNameLower.Contains("pró-labore") ||
+                                           catNameLower.Contains("pro-labore") ||
+                                           catNameLower.Contains("holerite");
+
+                    if (treatment == "TAXABLE_INCOME" || treatment == "TAXABLE" || treatment == "TRIBUTAVEL" || (string.IsNullOrEmpty(treatment) && isLikelyTaxable))
+                    {
+                        item.IrTreatment = "TAXABLE_INCOME";
+                        taxable.Add(item);
+                    }
+                    else if (treatment == "EXEMPT_INCOME" || treatment == "EXEMPT" || treatment == "ISENTO") exempt.Add(item);
+                    else if (treatment == "EXCLUSIVE_INCOME" || treatment == "EXCLUSIVE" || treatment == "EXCLUSIVO") exclusive.Add(item);
                 }
             }
 
@@ -100,12 +112,12 @@ namespace api_finances.src.Services
                 string desc = !string.IsNullOrEmpty(it.Notes) ? $"{ticker} - {it.Notes}" : $"{ticker} - Provento";
                 string kind = it.Kind?.ToUpperInvariant() ?? "";
 
-                if (kind == "DIVIDEND" || kind == "RENDIMENTO")
+                if (kind == "DIVIDEND" || kind == "RENDIMENTO" || kind == "INCOME" || kind == "DIVIDENDOS" || kind == "RENDIMENTOS")
                 {
                     exempt.Add(new TaxIncomeItemDto
                     {
                         Id = it.Id,
-                        CategoryName = kind == "DIVIDEND" ? "Dividendos" : "Rendimentos FII",
+                        CategoryName = (kind == "DIVIDEND" || kind == "DIVIDENDOS") ? "Dividendos" : "Rendimentos FII / Cupons",
                         CategoryId = "",
                         Description = desc,
                         TotalValue = it.Amount,

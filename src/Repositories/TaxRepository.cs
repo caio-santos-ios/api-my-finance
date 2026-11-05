@@ -50,14 +50,14 @@ namespace api_finances.src.Repository
         public async Task<List<InvestmentAsset>> GetInvestmentAssetsAsync(string userId)
         {
             return await context.InvestmentAssets
-                .Find(a => a.CreatedBy == userId && !a.Deleted)
+                .Find(a => (a.UserId == userId || a.CreatedBy == userId) && !a.Deleted)
                 .ToListAsync();
         }
 
         public async Task<List<InvestmentTransaction>> GetInvestmentTransactionsAsync(string userId, DateTime upToDate)
         {
             return await context.InvestmentTransactions
-                .Find(t => t.CreatedBy == userId && !t.Deleted && t.Date <= upToDate)
+                .Find(t => (t.UserId == userId || t.CreatedBy == userId) && !t.Deleted && t.Date <= upToDate)
                 .ToListAsync();
         }
 
