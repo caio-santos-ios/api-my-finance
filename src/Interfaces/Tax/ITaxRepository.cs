@@ -15,6 +15,6 @@ namespace api_finances.src.Interfaces
         Task<List<DebtPayment>> GetDebtPaymentsAsync(string userId, DateTime upToDate);
         Task<List<Attachment>> GetAttachmentsByOriginIdsAsync(List<string> originIds);
         Task<TaxYearSnapshot> SaveSnapshotAsync(TaxYearSnapshot snapshot);
-        Task<List<TaxYearSnapshot>> GetSnapshotsAsync(string userId);
+        Task<List<TaxYearSnapshot>> GetSnapshotsAsync(string userId, int? baseYear = null);
     }
 }

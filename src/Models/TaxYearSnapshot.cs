@@ -23,5 +23,14 @@ namespace api_finances.src.Models
 
         [BsonElement("payload")]
         public string Payload { get; set; } = string.Empty;
+
+        [BsonElement("hashSha256")]
+        public string HashSha256 { get; set; } = string.Empty;
+
+        [BsonElement("totalTaxableIncome")]
+        public decimal TotalTaxableIncome { get; set; }
+
+        [BsonElement("totalAssetsCost")]
+        public decimal TotalAssetsCost { get; set; }
     }
 }

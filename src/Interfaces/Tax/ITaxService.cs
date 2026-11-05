@@ -15,7 +15,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<List<TaxPendingItemDto>>> GetPendingAsync(int baseYear, string userId);
         Task<byte[]> ExportSpreadsheetAsync(int baseYear, string userId);
         Task<byte[]> ExportPdfAsync(int baseYear, string userId);
-        Task<ResponseApi<List<TaxYearSnapshot>>> GetSnapshotsAsync(string userId);
+        Task<ResponseApi<List<TaxYearSnapshot>>> GetSnapshotsAsync(string userId, int? baseYear = null);
         Task<ResponseApi<bool>> UpdateCategoryTreatmentAsync(string categoryId, UpdateCategoryIrTreatmentRequest request, string userId);
     }
 }

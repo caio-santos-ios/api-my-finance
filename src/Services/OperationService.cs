@@ -61,6 +61,8 @@ namespace api_finances.src.Services
                         {"destinationBankId", 1},
                         {"repeat", 1},
                         {"recurrence", 1},
+                        {"payeeName", 1},
+                        {"payeeDocument", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
@@ -127,6 +129,8 @@ namespace api_finances.src.Services
                         {"destinationBankId", 1},
                         {"repeat", 1},
                         {"recurrence", 1},
+                        {"payeeName", 1},
+                        {"payeeDocument", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
@@ -244,6 +248,8 @@ namespace api_finances.src.Services
                 existed.Type = request.Type;
                 existed.Repeat = request.Repeat;
                 existed.Recurrence = request.Repeat ? request.Recurrence : string.Empty;
+                existed.PayeeName = request.PayeeName;
+                existed.PayeeDocument = request.PayeeDocument;
 
                 Operation? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar");

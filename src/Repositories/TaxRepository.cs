@@ -29,7 +29,7 @@ namespace api_finances.src.Repository
                 .Set(c => c.UpdatedBy, userId)
                 .Set(c => c.UpdatedAt, DateTime.UtcNow);
 
-            var res = await context.Categories.UpdateOneAsync(c => c.Id == categoryId, update);
+            var res = await context.Categories.UpdateOneAsync(c => c.Id == categoryId && c.CreatedBy == userId && !c.Deleted, update);
             return res.ModifiedCount > 0;
         }
 
@@ -89,10 +89,18 @@ namespace api_finances.src.Repository
             return snapshot;
         }
 
-        public async Task<List<TaxYearSnapshot>> GetSnapshotsAsync(string userId)
+        public async Task<List<TaxYearSnapshot>> GetSnapshotsAsync(string userId, int? baseYear = null)
         {
+            var filter = Builders<TaxYearSnapshot>.Filter.Eq(s => s.UserId, userId) &
+                         Builders<TaxYearSnapshot>.Filter.Eq(s => s.Deleted, false);
+
+            if (baseYear.HasValue)
+            {
+                filter &= Builders<TaxYearSnapshot>.Filter.Eq(s => s.BaseYear, baseYear.Value);
+            }
+
             return await context.TaxYearSnapshots
-                .Find(s => s.UserId == userId && !s.Deleted)
+                .Find(filter)
                 .SortByDescending(s => s.GeneratedAt)
                 .ToListAsync();
         }

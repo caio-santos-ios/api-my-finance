@@ -23,6 +23,8 @@ namespace api_finances.src.Requests
         public string Type { get; set; } = string.Empty;
         public bool Repeat { get; set; } = false;
         public string Recurrence { get; set; } = string.Empty;
+        public string? PayeeName { get; set; }
+        public string? PayeeDocument { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

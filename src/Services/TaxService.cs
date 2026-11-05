@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using api_finances.src.Interfaces;
@@ -5,6 +7,7 @@ using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
+using api_finances.src.Utils;
 using ClosedXML.Excel;
 
 namespace api_finances.src.Services
@@ -13,123 +16,375 @@ namespace api_finances.src.Services
         ITaxRepository repository
     ) : ITaxService
     {
-        private static (DateTime start, DateTime end) GetYearBounds(int baseYear)
+        private static (DateTime start, DateTime end, DateTime prevEnd) GetYearBounds(int baseYear)
         {
             DateTime start = new(baseYear, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             DateTime end = new(baseYear, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
-            return (start, end);
+            DateTime prevEnd = start.AddMilliseconds(-1);
+            return (start, end, prevEnd);
+        }
+
+        private static (decimal qty, decimal cost) CalculateInvestmentPosition(List<InvestmentTransaction> txs, DateTime upToDate)
+        {
+            var relevant = txs.Where(t => t.Date <= upToDate).OrderBy(t => t.Date).ToList();
+            decimal totalQty = 0;
+            decimal totalCost = 0;
+
+            foreach (var tx in relevant)
+            {
+                string k = tx.Kind?.ToUpperInvariant() ?? "";
+                if (k == "BUY")
+                {
+                    totalQty += tx.Quantity;
+                    totalCost += tx.Amount;
+                }
+                else if (k == "SELL")
+                {
+                    if (totalQty > 0)
+                    {
+                        decimal avgPrice = totalCost / totalQty;
+                        totalQty -= tx.Quantity;
+                        if (totalQty < 0) totalQty = 0;
+                        totalCost = totalQty * avgPrice;
+                    }
+                }
+            }
+
+            return (totalQty, totalCost);
+        }
+
+        private async Task<TaxPreviewDto> BuildTaxPreviewInternalAsync(int baseYear, string userId)
+        {
+            var (start, end, prevEnd) = GetYearBounds(baseYear);
+            var categories = await repository.GetCategoriesAsync(userId);
+            var categoryMap = categories.ToDictionary(c => c.Id, c => c);
+
+            var operations = await repository.GetOperationsByPeriodAsync(userId, start, end);
+            var validOps = operations.Where(o => o.Type != "transfer" && string.IsNullOrEmpty(o.DestinationBankId)).ToList();
+
+            List<TaxIncomeItemDto> taxable = [];
+            List<TaxIncomeItemDto> exempt = [];
+            List<TaxIncomeItemDto> exclusive = [];
+
+            foreach (var op in validOps.Where(o => o.Type == "income" && o.Origin != "investment"))
+            {
+                if (categoryMap.TryGetValue(op.CategoryId, out var cat))
+                {
+                    var item = new TaxIncomeItemDto
+                    {
+                        Id = op.Id,
+                        CategoryName = cat.Name,
+                        CategoryId = cat.Id,
+                        Description = op.Description,
+                        PayerDocument = op.PayeeDocument,
+                        TotalValue = op.Value,
+                        Date = op.CreatedAt,
+                        IrTreatment = cat.IrTreatment,
+                        Source = "operation"
+                    };
+
+                    if (cat.IrTreatment == "TAXABLE_INCOME") taxable.Add(item);
+                    else if (cat.IrTreatment == "EXEMPT_INCOME") exempt.Add(item);
+                    else if (cat.IrTreatment == "EXCLUSIVE_INCOME") exclusive.Add(item);
+                }
+            }
+
+            var invTransactions = await repository.GetInvestmentTransactionsAsync(userId, end);
+            var invAssets = await repository.GetInvestmentAssetsAsync(userId);
+            var invAssetMap = invAssets.ToDictionary(a => a.Id, a => a);
+            var yearInvTxs = invTransactions.Where(t => t.Date >= start && t.Date <= end).ToList();
+
+            foreach (var it in yearInvTxs)
+            {
+                string ticker = invAssetMap.TryGetValue(it.InvestmentAssetId, out var a) ? a.Ticker : "Ativo";
+                string desc = !string.IsNullOrEmpty(it.Notes) ? $"{ticker} - {it.Notes}" : $"{ticker} - Provento";
+                string kind = it.Kind?.ToUpperInvariant() ?? "";
+
+                if (kind == "DIVIDEND" || kind == "RENDIMENTO")
+                {
+                    exempt.Add(new TaxIncomeItemDto
+                    {
+                        Id = it.Id,
+                        CategoryName = kind == "DIVIDEND" ? "Dividendos" : "Rendimentos FII",
+                        CategoryId = "",
+                        Description = desc,
+                        TotalValue = it.Amount,
+                        Date = it.Date,
+                        IrTreatment = "EXEMPT_INCOME",
+                        Source = "investment"
+                    });
+                }
+                else if (kind == "JCP")
+                {
+                    exclusive.Add(new TaxIncomeItemDto
+                    {
+                        Id = it.Id,
+                        CategoryName = "Juros sobre Capital Próprio (JCP)",
+                        CategoryId = "",
+                        Description = desc,
+                        TotalValue = it.Amount,
+                        Date = it.Date,
+                        IrTreatment = "EXCLUSIVE_INCOME",
+                        Source = "investment"
+                    });
+                }
+            }
+
+            var deductionOps = validOps.Where(o => o.Type == "expense" && categoryMap.TryGetValue(o.CategoryId, out var cat) && cat.IrTreatment == "DEDUCTION").ToList();
+            var opIds = deductionOps.Select(o => o.Id).ToList();
+            var attachments = await repository.GetAttachmentsByOriginIdsAsync(opIds);
+            var attachmentOriginSet = attachments.Select(att => att.ParentId).ToHashSet();
+
+            List<TaxDeductionItemDto> deductions = [];
+            foreach (var op in deductionOps)
+            {
+                var cat = categoryMap[op.CategoryId];
+                bool hasDoc = !string.IsNullOrWhiteSpace(op.PayeeDocument);
+                bool hasReceipt = attachmentOriginSet.Contains(op.Id);
+
+                deductions.Add(new TaxDeductionItemDto
+                {
+                    Id = op.Id,
+                    Description = op.Description,
+                    CategoryName = cat.Name,
+                    CategoryId = cat.Id,
+                    Subtype = !string.IsNullOrEmpty(cat.IrSubtype) ? cat.IrSubtype : "other",
+                    PayeeName = op.PayeeName,
+                    PayeeDocument = op.PayeeDocument,
+                    Amount = op.Value,
+                    Date = op.CreatedAt,
+                    HasDocument = hasDoc,
+                    HasReceipt = hasReceipt
+                });
+            }
+
+            List<TaxAssetItemDto> assetsList = [];
+            var patrimonyAssets = await repository.GetAssetsAsync(userId);
+            foreach (var a in patrimonyAssets)
+            {
+                bool heldInPrevYear = (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= prevEnd) &&
+                                      (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > prevEnd);
+                bool heldInBaseYear = (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= end) &&
+                                      (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > end);
+
+                if (heldInPrevYear || heldInBaseYear)
+                {
+                    decimal prevVal = heldInPrevYear ? a.PurchaseValue : 0;
+                    decimal baseVal = heldInBaseYear ? a.PurchaseValue : 0;
+                    bool missing = heldInBaseYear && a.PurchaseValue <= 0;
+
+                    assetsList.Add(new TaxAssetItemDto
+                    {
+                        Id = a.Id,
+                        Code = !string.IsNullOrWhiteSpace(a.IrAssetCode) ? a.IrAssetCode : "99",
+                        Name = a.Name,
+                        Type = a.Type,
+                        Discrimination = !string.IsNullOrWhiteSpace(a.IrDescription) ? a.IrDescription : (a.Description ?? a.Name),
+                        SituationPreviousYear = prevVal,
+                        SituationBaseYear = baseVal,
+                        CurrentMarketValue = a.CurrentValue,
+                        AcquisitionDate = a.AcquisitionDate,
+                        MissingAcquisitionValue = missing,
+                        Source = "patrimony"
+                    });
+                }
+            }
+
+            foreach (var invAsset in invAssets)
+            {
+                var assetTxs = invTransactions.Where(t => t.InvestmentAssetId == invAsset.Id).ToList();
+                var (prevQty, prevCost) = CalculateInvestmentPosition(assetTxs, prevEnd);
+                var (baseQty, baseCost) = CalculateInvestmentPosition(assetTxs, end);
+
+                if (prevQty > 0 || baseQty > 0)
+                {
+                    string code = invAsset.Type?.ToUpperInvariant() == "STOCK" ? "31" : (invAsset.Type?.ToUpperInvariant() == "FII" ? "73" : "45");
+                    string discrimination = baseQty > 0
+                        ? $"{baseQty} cotas/ações de {invAsset.Ticker} ({invAsset.Name}) pelo custo médio de aquisição"
+                        : $"Posição zerada em {invAsset.Ticker} ({invAsset.Name}) durante o ano-base";
+
+                    decimal marketVal = baseQty * (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : (baseQty > 0 ? (baseCost / baseQty) : 0));
+
+                    assetsList.Add(new TaxAssetItemDto
+                    {
+                        Id = invAsset.Id,
+                        Code = code,
+                        Name = $"{invAsset.Ticker} - {invAsset.Name}",
+                        Type = invAsset.Type ?? "STOCK",
+                        Discrimination = discrimination,
+                        SituationPreviousYear = prevCost,
+                        SituationBaseYear = baseCost,
+                        CurrentMarketValue = marketVal,
+                        AcquisitionDate = null,
+                        MissingAcquisitionValue = false,
+                        Source = "investment"
+                    });
+                }
+            }
+
+            List<TaxDebtItemDto> debtsList = [];
+            var debts = await repository.GetDebtsAsync(userId);
+            var debtPayments = await repository.GetDebtPaymentsAsync(userId, end);
+
+            foreach (var debt in debts)
+            {
+                decimal prevBalance = 0;
+                if (debt.CreatedAt <= prevEnd && (!debt.Settled || !debt.SettledDate.HasValue || debt.SettledDate.Value > prevEnd))
+                {
+                    var lastPayPrev = debtPayments
+                        .Where(p => p.DebtId == debt.Id && p.Date <= prevEnd)
+                        .OrderByDescending(p => p.Date)
+                        .ThenByDescending(p => p.CreatedAt)
+                        .FirstOrDefault();
+
+                    prevBalance = lastPayPrev != null ? lastPayPrev.NewRemainingAmount : debt.TotalAmount;
+                    if (prevBalance < 0) prevBalance = 0;
+                }
+
+                decimal baseBalance = 0;
+                if (debt.CreatedAt <= end && (!debt.Settled || !debt.SettledDate.HasValue || debt.SettledDate.Value > end))
+                {
+                    var lastPayBase = debtPayments
+                        .Where(p => p.DebtId == debt.Id && p.Date <= end)
+                        .OrderByDescending(p => p.Date)
+                        .ThenByDescending(p => p.CreatedAt)
+                        .FirstOrDefault();
+
+                    baseBalance = lastPayBase != null ? lastPayBase.NewRemainingAmount : debt.TotalAmount;
+                    if (baseBalance < 0) baseBalance = 0;
+                }
+
+                if (prevBalance > 0 || baseBalance > 0)
+                {
+                    debtsList.Add(new TaxDebtItemDto
+                    {
+                        Id = debt.Id,
+                        Code = "11",
+                        Name = debt.Name,
+                        Description = debt.Description,
+                        CreditorName = debt.Name,
+                        Type = debt.Type,
+                        SituationPreviousYear = prevBalance,
+                        SituationBaseYear = baseBalance,
+                        TotalAmount = debt.TotalAmount
+                    });
+                }
+            }
+
+            List<TaxPendingItemDto> pendingsList = [];
+
+            foreach (var a in assetsList.Where(x => x.MissingAcquisitionValue))
+            {
+                pendingsList.Add(new TaxPendingItemDto
+                {
+                    Type = "asset_missing_value",
+                    Title = "Bem sem custo de aquisição",
+                    Description = $"O bem \"{a.Name}\" está sem custo de aquisição informado.",
+                    Route = "/patrimony",
+                    EntityId = a.Id,
+                    EntityName = a.Name,
+                    Severity = "warning",
+                    ActionType = "edit_asset"
+                });
+            }
+
+            var undefinedCatOps = validOps
+                .Where(o => categoryMap.TryGetValue(o.CategoryId, out var cat) && (string.IsNullOrEmpty(cat.IrTreatment) || cat.IrTreatment == "NONE"))
+                .Select(o => o.CategoryId)
+                .Distinct()
+                .ToList();
+
+            foreach (var catId in undefinedCatOps)
+            {
+                if (categoryMap.TryGetValue(catId, out var cat))
+                {
+                    pendingsList.Add(new TaxPendingItemDto
+                    {
+                        Type = "category_no_treatment",
+                        Title = "Categoria sem tratamento de IR",
+                        Description = $"A categoria \"{cat.Name}\" possui lançamentos no ano-base mas está sem tratamento de IR definido.",
+                        Route = "/category",
+                        EntityId = cat.Id,
+                        EntityName = cat.Name,
+                        Severity = "info",
+                        ActionType = "edit_category"
+                    });
+                }
+            }
+
+            foreach (var d in deductions)
+            {
+                if (string.IsNullOrWhiteSpace(d.PayeeDocument))
+                {
+                    pendingsList.Add(new TaxPendingItemDto
+                    {
+                        Type = "deduction_missing_document",
+                        Title = "Dedução sem CPF/CNPJ",
+                        Description = $"Dedução \"{d.Description}\" ({d.Amount:C}) não possui CPF/CNPJ do prestador informado.",
+                        Route = "/operation",
+                        EntityId = d.Id,
+                        EntityName = d.Description,
+                        Severity = "warning",
+                        ActionType = "edit_operation"
+                    });
+                }
+                else if (!DocumentValidator.IsValidCpfOrCnpj(d.PayeeDocument))
+                {
+                    pendingsList.Add(new TaxPendingItemDto
+                    {
+                        Type = "deduction_invalid_document",
+                        Title = "CPF/CNPJ do prestador inválido",
+                        Description = $"Dedução \"{d.Description}\" possui CPF/CNPJ inválido (\"{d.PayeeDocument}\").",
+                        Route = "/operation",
+                        EntityId = d.Id,
+                        EntityName = d.Description,
+                        Severity = "warning",
+                        ActionType = "edit_operation"
+                    });
+                }
+
+                if (!d.HasReceipt)
+                {
+                    pendingsList.Add(new TaxPendingItemDto
+                    {
+                        Type = "deduction_missing_receipt",
+                        Title = "Dedução sem comprovante anexado",
+                        Description = $"Dedução \"{d.Description}\" ({d.Amount:C}) não possui comprovante/recibo anexado.",
+                        Route = "/operation",
+                        EntityId = d.Id,
+                        EntityName = d.Description,
+                        Severity = "warning",
+                        ActionType = "edit_operation"
+                    });
+                }
+            }
+
+            return new TaxPreviewDto
+            {
+                BaseYear = baseYear,
+                Disclaimer = "Material informativo de apoio ao preenchimento da Declaração de Ajuste Anual do IRPF. Não substitui os informes oficiais emitidos pelas fontes pagadoras nem a orientação de um profissional de contabilidade.",
+                TotalTaxableIncome = taxable.Sum(x => x.TotalValue),
+                TotalExemptIncome = exempt.Sum(x => x.TotalValue),
+                TotalExclusiveIncome = exclusive.Sum(x => x.TotalValue),
+                TotalDeductions = deductions.Sum(x => x.Amount),
+                TotalAssetsCost = assetsList.Where(x => !x.MissingAcquisitionValue).Sum(x => x.SituationBaseYear),
+                TotalDebtsBalance = debtsList.Sum(x => x.SituationBaseYear),
+                PendingCount = pendingsList.Count,
+                TaxableIncome = taxable.OrderByDescending(x => x.Date).ToList(),
+                ExemptIncome = exempt.OrderByDescending(x => x.Date).ToList(),
+                ExclusiveIncome = exclusive.OrderByDescending(x => x.Date).ToList(),
+                Deductions = deductions.OrderByDescending(x => x.Date).ToList(),
+                Assets = assetsList.OrderBy(x => x.Code).ThenBy(x => x.Name).ToList(),
+                Debts = debtsList.OrderByDescending(x => x.SituationBaseYear).ToList(),
+                Pendings = pendingsList
+            };
         }
 
         public async Task<ResponseApi<TaxPreviewDto>> GetPreviewAsync(int baseYear, string userId)
         {
             try
             {
-                var (start, end) = GetYearBounds(baseYear);
-                var categories = await repository.GetCategoriesAsync(userId);
-                var categoryMap = categories.ToDictionary(c => c.Id, c => c);
-
-                var operations = await repository.GetOperationsByPeriodAsync(userId, start, end);
-                var validOps = operations.Where(o => o.Type != "transfer" && string.IsNullOrEmpty(o.DestinationBankId)).ToList();
-
-                decimal taxableIncome = 0;
-                decimal exemptIncome = 0;
-                decimal exclusiveIncome = 0;
-                decimal deductions = 0;
-
-                foreach (var op in validOps)
-                {
-                    if (categoryMap.TryGetValue(op.CategoryId, out var cat))
-                    {
-                        if (op.Type == "income")
-                        {
-                            if (cat.IrTreatment == "TAXABLE_INCOME") taxableIncome += op.Value;
-                            else if (cat.IrTreatment == "EXEMPT_INCOME") exemptIncome += op.Value;
-                            else if (cat.IrTreatment == "EXCLUSIVE_INCOME") exclusiveIncome += op.Value;
-                        }
-                        else if (op.Type == "expense" && cat.IrTreatment == "DEDUCTION")
-                        {
-                            deductions += op.Value;
-                        }
-                    }
-                }
-
-                var invTransactions = await repository.GetInvestmentTransactionsAsync(userId, end);
-                var yearInvTxs = invTransactions.Where(t => t.Date >= start && t.Date <= end).ToList();
-                foreach (var it in yearInvTxs)
-                {
-                    string kind = it.Kind?.ToUpper() ?? "";
-                    if (kind == "DIVIDEND" || kind == "RENDIMENTO") exemptIncome += it.Amount;
-                    else if (kind == "JCP") exclusiveIncome += it.Amount;
-                }
-
-                var assets = await repository.GetAssetsAsync(userId);
-                var heldAssets = assets.Where(a =>
-                    (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= end) &&
-                    (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > end)
-                ).ToList();
-
-                decimal assetsAtAcquisitionCost = heldAssets.Where(a => a.PurchaseValue > 0).Sum(a => a.PurchaseValue);
-
-                var invAssets = await repository.GetInvestmentAssetsAsync(userId);
-                var invMap = invAssets.ToDictionary(a => a.Id, a => a);
-                foreach (var invAsset in invAssets)
-                {
-                    var assetTxs = invTransactions.Where(t => t.InvestmentAssetId == invAsset.Id).OrderBy(t => t.Date).ToList();
-                    decimal totalQty = 0;
-                    decimal totalCost = 0;
-
-                    foreach (var tx in assetTxs)
-                    {
-                        string k = tx.Kind?.ToUpper() ?? "";
-                        if (k == "BUY")
-                        {
-                            totalQty += tx.Quantity;
-                            totalCost += tx.Amount;
-                        }
-                        else if (k == "SELL")
-                        {
-                            if (totalQty > 0)
-                            {
-                                decimal avgPrice = totalCost / totalQty;
-                                totalQty -= tx.Quantity;
-                                if (totalQty < 0) totalQty = 0;
-                                totalCost = totalQty * avgPrice;
-                            }
-                        }
-                    }
-
-                    if (totalQty > 0 && totalCost > 0)
-                    {
-                        assetsAtAcquisitionCost += totalCost;
-                    }
-                }
-
-                var debts = await repository.GetDebtsAsync(userId);
-                var debtPayments = await repository.GetDebtPaymentsAsync(userId, end);
-                decimal debtsAtYearEnd = 0;
-
-                foreach (var debt in debts.Where(d => d.CreatedAt <= end))
-                {
-                    decimal paid = debtPayments.Where(p => p.DebtId == debt.Id).Sum(p => p.Amount);
-                    decimal remaining = debt.TotalAmount - paid;
-                    if (remaining > 0) debtsAtYearEnd += remaining;
-                }
-
-                var pendingResp = await GetPendingAsync(baseYear, userId);
-                int pendingCount = pendingResp.Data?.Count ?? 0;
-
-                TaxPreviewDto dto = new()
-                {
-                    BaseYear = baseYear,
-                    TaxableIncome = taxableIncome,
-                    ExemptIncome = exemptIncome,
-                    ExclusiveIncome = exclusiveIncome,
-                    Deductions = deductions,
-                    AssetsAtAcquisitionCost = assetsAtAcquisitionCost,
-                    DebtsAtYearEnd = debtsAtYearEnd,
-                    PendingCount = pendingCount
-                };
-
+                var dto = await BuildTaxPreviewInternalAsync(baseYear, userId);
                 return new(dto, 200, "Pré-visualização do IR calculada com sucesso");
             }
             catch (Exception ex)
@@ -142,88 +397,15 @@ namespace api_finances.src.Services
         {
             try
             {
-                var (start, end) = GetYearBounds(baseYear);
-                var categories = await repository.GetCategoriesAsync(userId);
-                var categoryMap = categories.ToDictionary(c => c.Id, c => c);
-
-                var operations = await repository.GetOperationsByPeriodAsync(userId, start, end);
-                var validOps = operations.Where(o => o.Type == "income" && string.IsNullOrEmpty(o.DestinationBankId)).ToList();
-
-                List<TaxIncomeItemDto> taxable = [];
-                List<TaxIncomeItemDto> exempt = [];
-                List<TaxIncomeItemDto> exclusive = [];
-
-                foreach (var op in validOps)
-                {
-                    if (categoryMap.TryGetValue(op.CategoryId, out var cat))
-                    {
-                        var item = new TaxIncomeItemDto
-                        {
-                            Id = op.Id,
-                            Description = op.Description,
-                            CategoryName = cat.Name,
-                            CategoryId = cat.Id,
-                            Value = op.Value,
-                            Date = op.CreatedAt,
-                            Treatment = cat.IrTreatment,
-                            Source = "operation"
-                        };
-
-                        if (cat.IrTreatment == "TAXABLE_INCOME") taxable.Add(item);
-                        else if (cat.IrTreatment == "EXEMPT_INCOME") exempt.Add(item);
-                        else if (cat.IrTreatment == "EXCLUSIVE_INCOME") exclusive.Add(item);
-                    }
-                }
-
-                var invTransactions = await repository.GetInvestmentTransactionsAsync(userId, end);
-                var invAssets = await repository.GetInvestmentAssetsAsync(userId);
-                var invAssetMap = invAssets.ToDictionary(a => a.Id, a => a);
-                var yearInvTxs = invTransactions.Where(t => t.Date >= start && t.Date <= end).ToList();
-
-                foreach (var it in yearInvTxs)
-                {
-                    string ticker = invAssetMap.TryGetValue(it.InvestmentAssetId, out var a) ? a.Ticker : "Ativo";
-                    string desc = !string.IsNullOrEmpty(it.Notes) ? $"{ticker} - {it.Notes}" : $"{ticker} - Provento";
-                    string kind = it.Kind?.ToUpper() ?? "";
-
-                    if (kind == "DIVIDEND" || kind == "RENDIMENTO")
-                    {
-                        exempt.Add(new TaxIncomeItemDto
-                        {
-                            Id = it.Id,
-                            Description = desc,
-                            CategoryName = kind == "DIVIDEND" ? "Dividendos" : "Rendimentos FII",
-                            CategoryId = "",
-                            Value = it.Amount,
-                            Date = it.Date,
-                            Treatment = "EXEMPT_INCOME",
-                            Source = "investment"
-                        });
-                    }
-                    else if (kind == "JCP")
-                    {
-                        exclusive.Add(new TaxIncomeItemDto
-                        {
-                            Id = it.Id,
-                            Description = desc,
-                            CategoryName = "Juros sobre Capital Próprio",
-                            CategoryId = "",
-                            Value = it.Amount,
-                            Date = it.Date,
-                            Treatment = "EXCLUSIVE_INCOME",
-                            Source = "investment"
-                        });
-                    }
-                }
-
+                var prev = await BuildTaxPreviewInternalAsync(baseYear, userId);
                 var result = new
                 {
-                    taxableTotal = taxable.Sum(x => x.Value),
-                    exemptTotal = exempt.Sum(x => x.Value),
-                    exclusiveTotal = exclusive.Sum(x => x.Value),
-                    taxable = taxable.OrderByDescending(x => x.Date).ToList(),
-                    exempt = exempt.OrderByDescending(x => x.Date).ToList(),
-                    exclusive = exclusive.OrderByDescending(x => x.Date).ToList()
+                    taxableTotal = prev.TotalTaxableIncome,
+                    exemptTotal = prev.TotalExemptIncome,
+                    exclusiveTotal = prev.TotalExclusiveIncome,
+                    taxable = prev.TaxableIncome,
+                    exempt = prev.ExemptIncome,
+                    exclusive = prev.ExclusiveIncome
                 };
 
                 return new(result, 200, "Rendimentos obtidos com sucesso");
@@ -238,44 +420,11 @@ namespace api_finances.src.Services
         {
             try
             {
-                var (start, end) = GetYearBounds(baseYear);
-                var categories = await repository.GetCategoriesAsync(userId);
-                var categoryMap = categories.ToDictionary(c => c.Id, c => c);
-
-                var operations = await repository.GetOperationsByPeriodAsync(userId, start, end);
-                var deductionOps = operations.Where(o => o.Type == "expense" && categoryMap.TryGetValue(o.CategoryId, out var cat) && cat.IrTreatment == "DEDUCTION").ToList();
-
-                var opIds = deductionOps.Select(o => o.Id).ToList();
-                var attachments = await repository.GetAttachmentsByOriginIdsAsync(opIds);
-                var attachmentOriginSet = attachments.Select(a => a.ParentId).ToHashSet();
-
-                List<TaxDeductionItemDto> items = [];
-                foreach (var op in deductionOps)
-                {
-                    var cat = categoryMap[op.CategoryId];
-                    bool hasDoc = !string.IsNullOrWhiteSpace(op.PayeeDocument);
-                    bool hasReceipt = attachmentOriginSet.Contains(op.Id);
-
-                    items.Add(new TaxDeductionItemDto
-                    {
-                        Id = op.Id,
-                        Description = op.Description,
-                        CategoryName = cat.Name,
-                        CategoryId = cat.Id,
-                        Value = op.Value,
-                        Date = op.CreatedAt,
-                        PayeeName = op.PayeeName,
-                        PayeeDocument = op.PayeeDocument,
-                        HasDocument = hasDoc,
-                        HasReceipt = hasReceipt,
-                        Subtype = cat.IrSubtype
-                    });
-                }
-
+                var prev = await BuildTaxPreviewInternalAsync(baseYear, userId);
                 var result = new
                 {
-                    total = items.Sum(x => x.Value),
-                    items = items.OrderByDescending(x => x.Date).ToList()
+                    total = prev.TotalDeductions,
+                    items = prev.Deductions
                 };
 
                 return new(result, 200, "Deduções obtidas com sucesso");
@@ -290,83 +439,11 @@ namespace api_finances.src.Services
         {
             try
             {
-                var (_, end) = GetYearBounds(baseYear);
-                var assets = await repository.GetAssetsAsync(userId);
-                var heldAssets = assets.Where(a =>
-                    (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= end) &&
-                    (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > end)
-                ).ToList();
-
-                List<TaxAssetItemDto> items = [];
-                foreach (var a in heldAssets)
-                {
-                    bool missing = a.PurchaseValue <= 0;
-                    items.Add(new TaxAssetItemDto
-                    {
-                        Id = a.Id,
-                        Name = a.Name,
-                        Type = a.Type,
-                        IrAssetCode = a.IrAssetCode,
-                        IrDescription = a.IrDescription ?? a.Description,
-                        AcquisitionValue = a.PurchaseValue,
-                        CurrentMarketValue = a.CurrentValue,
-                        AcquisitionDate = a.AcquisitionDate,
-                        MissingAcquisitionValue = missing,
-                        Source = "patrimony"
-                    });
-                }
-
-                var invTransactions = await repository.GetInvestmentTransactionsAsync(userId, end);
-                var invAssets = await repository.GetInvestmentAssetsAsync(userId);
-
-                foreach (var invAsset in invAssets)
-                {
-                    var assetTxs = invTransactions.Where(t => t.InvestmentAssetId == invAsset.Id).OrderBy(t => t.Date).ToList();
-                    decimal totalQty = 0;
-                    decimal totalCost = 0;
-
-                    foreach (var tx in assetTxs)
-                    {
-                        string k = tx.Kind?.ToUpper() ?? "";
-                        if (k == "BUY")
-                        {
-                            totalQty += tx.Quantity;
-                            totalCost += tx.Amount;
-                        }
-                        else if (k == "SELL")
-                        {
-                            if (totalQty > 0)
-                            {
-                                decimal avgPrice = totalCost / totalQty;
-                                totalQty -= tx.Quantity;
-                                if (totalQty < 0) totalQty = 0;
-                                totalCost = totalQty * avgPrice;
-                            }
-                        }
-                    }
-
-                    if (totalQty > 0)
-                    {
-                        items.Add(new TaxAssetItemDto
-                        {
-                            Id = invAsset.Id,
-                            Name = $"{invAsset.Ticker} - {invAsset.Name}",
-                            Type = invAsset.Type ?? "STOCK",
-                            IrAssetCode = invAsset.Type?.ToUpper() == "STOCK" ? "31" : (invAsset.Type?.ToUpper() == "FII" ? "73" : "45"),
-                            IrDescription = $"{totalQty} cotas/ações de {invAsset.Ticker} ({invAsset.Name}) pelo custo médio de aquisição",
-                            AcquisitionValue = totalCost,
-                            CurrentMarketValue = totalQty * (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : (totalCost / totalQty)),
-                            AcquisitionDate = null,
-                            MissingAcquisitionValue = false,
-                            Source = "investment"
-                        });
-                    }
-                }
-
+                var prev = await BuildTaxPreviewInternalAsync(baseYear, userId);
                 var result = new
                 {
-                    totalAcquisitionCost = items.Where(x => !x.MissingAcquisitionValue).Sum(x => x.AcquisitionValue),
-                    items = items.OrderBy(x => x.Name).ToList()
+                    totalAcquisitionCost = prev.TotalAssetsCost,
+                    items = prev.Assets
                 };
 
                 return new(result, 200, "Bens e direitos obtidos com sucesso");
@@ -381,33 +458,11 @@ namespace api_finances.src.Services
         {
             try
             {
-                var (_, end) = GetYearBounds(baseYear);
-                var debts = await repository.GetDebtsAsync(userId);
-                var debtPayments = await repository.GetDebtPaymentsAsync(userId, end);
-
-                List<TaxDebtItemDto> items = [];
-                foreach (var debt in debts.Where(d => d.CreatedAt <= end))
-                {
-                    decimal paid = debtPayments.Where(p => p.DebtId == debt.Id).Sum(p => p.Amount);
-                    decimal remaining = debt.TotalAmount - paid;
-                    if (remaining > 0)
-                    {
-                        items.Add(new TaxDebtItemDto
-                        {
-                            Id = debt.Id,
-                            Name = debt.Name,
-                            Type = debt.Type,
-                            TotalAmount = debt.TotalAmount,
-                            BalanceAtYearEnd = remaining,
-                            BankName = ""
-                        });
-                    }
-                }
-
+                var prev = await BuildTaxPreviewInternalAsync(baseYear, userId);
                 var result = new
                 {
-                    totalRemaining = items.Sum(x => x.BalanceAtYearEnd),
-                    items = items.OrderByDescending(x => x.BalanceAtYearEnd).ToList()
+                    totalRemaining = prev.TotalDebtsBalance,
+                    items = prev.Debts
                 };
 
                 return new(result, 200, "Dívidas e ônus obtidos com sucesso");
@@ -422,93 +477,8 @@ namespace api_finances.src.Services
         {
             try
             {
-                var (start, end) = GetYearBounds(baseYear);
-                List<TaxPendingItemDto> pendings = [];
-
-                var assets = await repository.GetAssetsAsync(userId);
-                var heldAssets = assets.Where(a =>
-                    (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= end) &&
-                    (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > end)
-                ).ToList();
-
-                foreach (var a in heldAssets)
-                {
-                    if (a.PurchaseValue <= 0)
-                    {
-                        pendings.Add(new TaxPendingItemDto
-                        {
-                            Type = "asset_missing_value",
-                            Severity = "warning",
-                            Message = $"O bem \"{a.Name}\" está sem custo de aquisição informado.",
-                            EntityId = a.Id,
-                            EntityName = a.Name,
-                            ActionType = "edit_asset"
-                        });
-                    }
-                }
-
-                var categories = await repository.GetCategoriesAsync(userId);
-                var categoryMap = categories.ToDictionary(c => c.Id, c => c);
-                var operations = await repository.GetOperationsByPeriodAsync(userId, start, end);
-                var validOps = operations.Where(o => o.Type != "transfer" && string.IsNullOrEmpty(o.DestinationBankId)).ToList();
-
-                var opIds = validOps.Select(o => o.Id).ToList();
-                var attachments = await repository.GetAttachmentsByOriginIdsAsync(opIds);
-                var attachmentOriginSet = attachments.Select(a => a.ParentId).ToHashSet();
-
-                var undefinedCatOps = validOps
-                    .Where(o => categoryMap.TryGetValue(o.CategoryId, out var cat) && (string.IsNullOrEmpty(cat.IrTreatment) || cat.IrTreatment == "NONE"))
-                    .Select(o => o.CategoryId)
-                    .Distinct()
-                    .ToList();
-
-                foreach (var catId in undefinedCatOps)
-                {
-                    if (categoryMap.TryGetValue(catId, out var cat))
-                    {
-                        pendings.Add(new TaxPendingItemDto
-                        {
-                            Type = "category_no_treatment",
-                            Severity = "info",
-                            Message = $"A categoria \"{cat.Name}\" possui lançamentos no ano-base mas está sem tratamento de IR definido.",
-                            EntityId = cat.Id,
-                            EntityName = cat.Name,
-                            ActionType = "edit_category"
-                        });
-                    }
-                }
-
-                var deductionOps = validOps.Where(o => categoryMap.TryGetValue(o.CategoryId, out var cat) && cat.IrTreatment == "DEDUCTION").ToList();
-                foreach (var op in deductionOps)
-                {
-                    if (string.IsNullOrWhiteSpace(op.PayeeDocument))
-                    {
-                        pendings.Add(new TaxPendingItemDto
-                        {
-                            Type = "deduction_missing_document",
-                            Severity = "warning",
-                            Message = $"Dedução \"{op.Description}\" ({op.Value:C}) não possui CPF/CNPJ do prestador informado.",
-                            EntityId = op.Id,
-                            EntityName = op.Description,
-                            ActionType = "edit_operation"
-                        });
-                    }
-
-                    if (!attachmentOriginSet.Contains(op.Id))
-                    {
-                        pendings.Add(new TaxPendingItemDto
-                        {
-                            Type = "deduction_missing_receipt",
-                            Severity = "warning",
-                            Message = $"Dedução \"{op.Description}\" ({op.Value:C}) não possui comprovante/recibo anexado.",
-                            EntityId = op.Id,
-                            EntityName = op.Description,
-                            ActionType = "edit_operation"
-                        });
-                    }
-                }
-
-                return new(pendings, 200, "Pendências obtidas com sucesso");
+                var prev = await BuildTaxPreviewInternalAsync(baseYear, userId);
+                return new(prev.Pendings, 200, "Pendências obtidas com sucesso");
             }
             catch (Exception ex)
             {
@@ -518,13 +488,7 @@ namespace api_finances.src.Services
 
         public async Task<byte[]> ExportSpreadsheetAsync(int baseYear, string userId)
         {
-            var previewResp = await GetPreviewAsync(baseYear, userId);
-            var incomeResp = await GetIncomeAsync(baseYear, userId);
-            var deductionsResp = await GetDeductionsAsync(baseYear, userId);
-            var assetsResp = await GetAssetsAsync(baseYear, userId);
-            var debtsResp = await GetDebtsAsync(baseYear, userId);
-            var pendingResp = await GetPendingAsync(baseYear, userId);
-
+            var preview = await BuildTaxPreviewInternalAsync(baseYear, userId);
             using var workbook = new XLWorkbook();
 
             var wsSummary = workbook.Worksheets.Add("Resumo");
@@ -532,7 +496,7 @@ namespace api_finances.src.Services
             wsSummary.Cell(1, 1).Style.Font.Bold = true;
             wsSummary.Cell(1, 1).Style.Font.FontSize = 14;
 
-            wsSummary.Cell(3, 1).Value = "Material de apoio ao preenchimento da declaração. Não substitui a orientação de um contador.";
+            wsSummary.Cell(3, 1).Value = preview.Disclaimer;
             wsSummary.Cell(3, 1).Style.Font.Italic = true;
 
             wsSummary.Cell(5, 1).Value = "Seção da Declaração";
@@ -542,132 +506,174 @@ namespace api_finances.src.Services
             wsSummary.Range(5, 1, 5, 2).Style.Font.FontColor = XLColor.White;
 
             int row = 6;
-            var prev = previewResp.Data;
             wsSummary.Cell(row, 1).Value = "1. Rendimentos Tributáveis";
-            wsSummary.Cell(row++, 2).Value = prev?.TaxableIncome ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.TotalTaxableIncome;
             wsSummary.Cell(row, 1).Value = "2. Rendimentos Isentos e Não Tributáveis";
-            wsSummary.Cell(row++, 2).Value = prev?.ExemptIncome ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.TotalExemptIncome;
             wsSummary.Cell(row, 1).Value = "3. Rendimentos Sujeitos à Tributação Exclusiva";
-            wsSummary.Cell(row++, 2).Value = prev?.ExclusiveIncome ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.TotalExclusiveIncome;
             wsSummary.Cell(row, 1).Value = "4. Pagamentos Efetuados (Deduções)";
-            wsSummary.Cell(row++, 2).Value = prev?.Deductions ?? 0;
-            wsSummary.Cell(row, 1).Value = "5. Bens e Direitos (Custo de Aquisição)";
-            wsSummary.Cell(row++, 2).Value = prev?.AssetsAtAcquisitionCost ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.TotalDeductions;
+            wsSummary.Cell(row, 1).Value = "5. Bens e Direitos (Custo de Aquisição em 31/12)";
+            wsSummary.Cell(row++, 2).Value = preview.TotalAssetsCost;
             wsSummary.Cell(row, 1).Value = "6. Dívidas e Ônus Reais (Saldo em 31/12)";
-            wsSummary.Cell(row++, 2).Value = prev?.DebtsAtYearEnd ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.TotalDebtsBalance;
+            wsSummary.Cell(row, 1).Value = "Patrimônio Líquido Fiscal (Bens - Dívidas)";
+            wsSummary.Cell(row++, 2).Value = preview.TotalAssetsCost - preview.TotalDebtsBalance;
             wsSummary.Cell(row, 1).Value = "Pendências Identificadas";
-            wsSummary.Cell(row++, 2).Value = prev?.PendingCount ?? 0;
+            wsSummary.Cell(row++, 2).Value = preview.PendingCount;
 
             wsSummary.Range(6, 2, row - 2, 2).Style.NumberFormat.Format = "R$ #,##0.00";
             wsSummary.Columns().AdjustToContents();
 
+            var wsIncome = workbook.Worksheets.Add("Rendimentos");
+            int incRow = 1;
+
+            void RenderIncomeSection(string title, List<TaxIncomeItemDto> items, string colorHex)
+            {
+                wsIncome.Cell(incRow, 1).Value = title;
+                wsIncome.Range(incRow, 1, incRow, 5).Merge();
+                wsIncome.Cell(incRow, 1).Style.Font.Bold = true;
+                wsIncome.Cell(incRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml(colorHex);
+                wsIncome.Cell(incRow, 1).Style.Font.FontColor = XLColor.White;
+                incRow++;
+
+                wsIncome.Cell(incRow, 1).Value = "Data";
+                wsIncome.Cell(incRow, 2).Value = "Fonte / Categoria";
+                wsIncome.Cell(incRow, 3).Value = "Descrição";
+                wsIncome.Cell(incRow, 4).Value = "CNPJ / CPF da Fonte";
+                wsIncome.Cell(incRow, 5).Value = "Total Recebido (R$)";
+                wsIncome.Range(incRow, 1, incRow, 5).Style.Font.Bold = true;
+                incRow++;
+
+                if (items.Count == 0)
+                {
+                    wsIncome.Cell(incRow, 1).Value = "Nenhum rendimento nesta seção.";
+                    wsIncome.Range(incRow, 1, incRow, 5).Merge();
+                    incRow += 2;
+                    return;
+                }
+
+                int startSub = incRow;
+                foreach (var it in items)
+                {
+                    wsIncome.Cell(incRow, 1).Value = it.Date.ToString("dd/MM/yyyy");
+                    wsIncome.Cell(incRow, 2).Value = it.CategoryName;
+                    wsIncome.Cell(incRow, 3).Value = it.Description ?? "—";
+                    wsIncome.Cell(incRow, 4).Value = it.PayerDocument ?? "—";
+                    wsIncome.Cell(incRow, 5).Value = it.TotalValue;
+                    incRow++;
+                }
+                wsIncome.Range(startSub, 5, incRow - 1, 5).Style.NumberFormat.Format = "R$ #,##0.00";
+                incRow += 2;
+            }
+
+            RenderIncomeSection("1. Rendimentos Tributáveis", preview.TaxableIncome, "#10b981");
+            RenderIncomeSection("2. Rendimentos Isentos e Não Tributáveis", preview.ExemptIncome, "#3b82f6");
+            RenderIncomeSection("3. Rendimentos com Tributação Exclusiva / Definitiva", preview.ExclusiveIncome, "#8b5cf6");
+            wsIncome.Columns().AdjustToContents();
+
             var wsDeductions = workbook.Worksheets.Add("Deduções");
             wsDeductions.Cell(1, 1).Value = "Data";
-            wsDeductions.Cell(1, 2).Value = "Categoria";
-            wsDeductions.Cell(1, 3).Value = "Descrição";
-            wsDeductions.Cell(1, 4).Value = "Prestador";
-            wsDeductions.Cell(1, 5).Value = "CPF / CNPJ";
-            wsDeductions.Cell(1, 6).Value = "Comprovante Anexado";
-            wsDeductions.Cell(1, 7).Value = "Valor (R$)";
-            wsDeductions.Range(1, 1, 1, 7).Style.Font.Bold = true;
-            wsDeductions.Range(1, 1, 1, 7).Style.Fill.BackgroundColor = XLColor.FromHtml("#2563eb");
-            wsDeductions.Range(1, 1, 1, 7).Style.Font.FontColor = XLColor.White;
+            wsDeductions.Cell(1, 2).Value = "Tipo de Dedução";
+            wsDeductions.Cell(1, 3).Value = "Categoria";
+            wsDeductions.Cell(1, 4).Value = "Descrição";
+            wsDeductions.Cell(1, 5).Value = "Prestador / Favorecido";
+            wsDeductions.Cell(1, 6).Value = "CPF / CNPJ";
+            wsDeductions.Cell(1, 7).Value = "Comprovante Anexado";
+            wsDeductions.Cell(1, 8).Value = "Valor Dedutível (R$)";
+            wsDeductions.Range(1, 1, 1, 8).Style.Font.Bold = true;
+            wsDeductions.Range(1, 1, 1, 8).Style.Fill.BackgroundColor = XLColor.FromHtml("#2563eb");
+            wsDeductions.Range(1, 1, 1, 8).Style.Font.FontColor = XLColor.White;
 
-            dynamic? dData = deductionsResp.Data;
-            List<TaxDeductionItemDto> dItems = (dData?.items as List<TaxDeductionItemDto>) ?? [];
             int dRow = 2;
-            foreach (var item in dItems)
+            foreach (var item in preview.Deductions)
             {
                 wsDeductions.Cell(dRow, 1).Value = item.Date.ToString("dd/MM/yyyy");
-                wsDeductions.Cell(dRow, 2).Value = item.CategoryName;
-                wsDeductions.Cell(dRow, 3).Value = item.Description;
-                wsDeductions.Cell(dRow, 4).Value = item.PayeeName ?? "—";
-                wsDeductions.Cell(dRow, 5).Value = item.PayeeDocument ?? "—";
-                wsDeductions.Cell(dRow, 6).Value = item.HasReceipt ? "Sim" : "Não";
-                wsDeductions.Cell(dRow, 7).Value = item.Value;
+                wsDeductions.Cell(dRow, 2).Value = item.Subtype;
+                wsDeductions.Cell(dRow, 3).Value = item.CategoryName;
+                wsDeductions.Cell(dRow, 4).Value = item.Description ?? "—";
+                wsDeductions.Cell(dRow, 5).Value = item.PayeeName ?? "—";
+                wsDeductions.Cell(dRow, 6).Value = item.PayeeDocument ?? "—";
+                wsDeductions.Cell(dRow, 7).Value = item.HasReceipt ? "Sim" : "Não";
+                wsDeductions.Cell(dRow, 8).Value = item.Amount;
                 dRow++;
             }
-            if (dRow > 2) wsDeductions.Range(2, 7, dRow - 1, 7).Style.NumberFormat.Format = "R$ #,##0.00";
+            if (dRow > 2) wsDeductions.Range(2, 8, dRow - 1, 8).Style.NumberFormat.Format = "R$ #,##0.00";
             wsDeductions.Columns().AdjustToContents();
 
             var wsAssets = workbook.Worksheets.Add("Bens e Direitos");
             wsAssets.Cell(1, 1).Value = "Código IR";
             wsAssets.Cell(1, 2).Value = "Nome";
             wsAssets.Cell(1, 3).Value = "Tipo";
-            wsAssets.Cell(1, 4).Value = "Descrição para a Declaração";
-            wsAssets.Cell(1, 5).Value = "Custo de Aquisição (R$)";
-            wsAssets.Cell(1, 6).Value = "Valor Atual Mercado (R$)";
+            wsAssets.Cell(1, 4).Value = "Discriminação Receita Federal";
+            wsAssets.Cell(1, 5).Value = $"Situação em 31/12/{baseYear - 1} (R$)";
+            wsAssets.Cell(1, 6).Value = $"Situação em 31/12/{baseYear} (R$)";
             wsAssets.Range(1, 1, 1, 6).Style.Font.Bold = true;
             wsAssets.Range(1, 1, 1, 6).Style.Fill.BackgroundColor = XLColor.FromHtml("#059669");
             wsAssets.Range(1, 1, 1, 6).Style.Font.FontColor = XLColor.White;
 
-            dynamic? aData = assetsResp.Data;
-            List<TaxAssetItemDto> aItems = (aData?.items as List<TaxAssetItemDto>) ?? [];
             int aRow = 2;
-            foreach (var item in aItems)
+            foreach (var item in preview.Assets)
             {
-                wsAssets.Cell(aRow, 1).Value = item.IrAssetCode ?? "—";
+                wsAssets.Cell(aRow, 1).Value = item.Code;
                 wsAssets.Cell(aRow, 2).Value = item.Name;
                 wsAssets.Cell(aRow, 3).Value = item.Type;
-                wsAssets.Cell(aRow, 4).Value = item.IrDescription ?? item.Name;
-                wsAssets.Cell(aRow, 5).Value = item.AcquisitionValue;
-                wsAssets.Cell(aRow, 6).Value = item.CurrentMarketValue;
+                wsAssets.Cell(aRow, 4).Value = item.Discrimination;
+                wsAssets.Cell(aRow, 5).Value = item.SituationPreviousYear;
+                wsAssets.Cell(aRow, 6).Value = item.SituationBaseYear;
                 aRow++;
             }
-            if (aRow > 2)
-            {
-                wsAssets.Range(2, 5, aRow - 1, 6).Style.NumberFormat.Format = "R$ #,##0.00";
-            }
+            if (aRow > 2) wsAssets.Range(2, 5, aRow - 1, 6).Style.NumberFormat.Format = "R$ #,##0.00";
             wsAssets.Columns().AdjustToContents();
 
             var wsDebts = workbook.Worksheets.Add("Dívidas e Ônus");
-            wsDebts.Cell(1, 1).Value = "Nome da Dívida";
-            wsDebts.Cell(1, 2).Value = "Tipo";
-            wsDebts.Cell(1, 3).Value = "Valor Original (R$)";
-            wsDebts.Cell(1, 4).Value = "Saldo em 31/12 (R$)";
-            wsDebts.Range(1, 1, 1, 4).Style.Font.Bold = true;
-            wsDebts.Range(1, 1, 1, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#dc2626");
-            wsDebts.Range(1, 1, 1, 4).Style.Font.FontColor = XLColor.White;
+            wsDebts.Cell(1, 1).Value = "Código";
+            wsDebts.Cell(1, 2).Value = "Dívida / Descrição";
+            wsDebts.Cell(1, 3).Value = "Credor";
+            wsDebts.Cell(1, 4).Value = $"Situação em 31/12/{baseYear - 1} (R$)";
+            wsDebts.Cell(1, 5).Value = $"Situação em 31/12/{baseYear} (R$)";
+            wsDebts.Range(1, 1, 1, 5).Style.Font.Bold = true;
+            wsDebts.Range(1, 1, 1, 5).Style.Fill.BackgroundColor = XLColor.FromHtml("#dc2626");
+            wsDebts.Range(1, 1, 1, 5).Style.Font.FontColor = XLColor.White;
 
-            dynamic? debData = debtsResp.Data;
-            List<TaxDebtItemDto> debItems = (debData?.items as List<TaxDebtItemDto>) ?? [];
-            int debRow = 2;
-            foreach (var item in debItems)
+            int dbRow = 2;
+            foreach (var item in preview.Debts)
             {
-                wsDebts.Cell(debRow, 1).Value = item.Name;
-                wsDebts.Cell(debRow, 2).Value = item.Type;
-                wsDebts.Cell(debRow, 3).Value = item.TotalAmount;
-                wsDebts.Cell(debRow, 4).Value = item.BalanceAtYearEnd;
-                debRow++;
+                wsDebts.Cell(dbRow, 1).Value = item.Code;
+                wsDebts.Cell(dbRow, 2).Value = item.Name;
+                wsDebts.Cell(dbRow, 3).Value = item.CreditorName ?? "—";
+                wsDebts.Cell(dbRow, 4).Value = item.SituationPreviousYear;
+                wsDebts.Cell(dbRow, 5).Value = item.SituationBaseYear;
+                dbRow++;
             }
-            if (debRow > 2)
-            {
-                wsDebts.Range(2, 3, debRow - 1, 4).Style.NumberFormat.Format = "R$ #,##0.00";
-            }
+            if (dbRow > 2) wsDebts.Range(2, 4, dbRow - 1, 5).Style.NumberFormat.Format = "R$ #,##0.00";
             wsDebts.Columns().AdjustToContents();
 
-            var wsPend = workbook.Worksheets.Add("Pendências");
-            wsPend.Cell(1, 1).Value = "Severidade";
-            wsPend.Cell(1, 2).Value = "Item";
-            wsPend.Cell(1, 3).Value = "Mensagem / Alerta";
-            wsPend.Range(1, 1, 1, 3).Style.Font.Bold = true;
-            wsPend.Range(1, 1, 1, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#d97706");
-            wsPend.Range(1, 1, 1, 3).Style.Font.FontColor = XLColor.White;
+            var wsPending = workbook.Worksheets.Add("Pendências");
+            wsPending.Cell(1, 1).Value = "Tipo";
+            wsPending.Cell(1, 2).Value = "Título";
+            wsPending.Cell(1, 3).Value = "Descrição";
+            wsPending.Range(1, 1, 1, 3).Style.Font.Bold = true;
+            wsPending.Range(1, 1, 1, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#d97706");
+            wsPending.Range(1, 1, 1, 3).Style.Font.FontColor = XLColor.White;
 
-            var pendList = pendingResp.Data ?? [];
             int pRow = 2;
-            foreach (var p in pendList)
+            foreach (var item in preview.Pendings)
             {
-                wsPend.Cell(pRow, 1).Value = p.Severity.ToUpper();
-                wsPend.Cell(pRow, 2).Value = p.EntityName;
-                wsPend.Cell(pRow, 3).Value = p.Message;
+                wsPending.Cell(pRow, 1).Value = item.Type;
+                wsPending.Cell(pRow, 2).Value = item.Title;
+                wsPending.Cell(pRow, 3).Value = item.Description;
                 pRow++;
             }
-            wsPend.Columns().AdjustToContents();
+            wsPending.Columns().AdjustToContents();
 
             using var ms = new MemoryStream();
             workbook.SaveAs(ms);
             byte[] bytes = ms.ToArray();
+
+            using var sha = SHA256.Create();
+            string hashHex = Convert.ToHexString(sha.ComputeHash(bytes)).ToLowerInvariant();
 
             var snapshot = new TaxYearSnapshot
             {
@@ -675,7 +681,10 @@ namespace api_finances.src.Services
                 BaseYear = baseYear,
                 GeneratedAt = DateTime.UtcNow,
                 Format = "xlsx",
-                Payload = JsonSerializer.Serialize(previewResp.Data),
+                Payload = JsonSerializer.Serialize(preview),
+                HashSha256 = hashHex,
+                TotalTaxableIncome = preview.TotalTaxableIncome,
+                TotalAssetsCost = preview.TotalAssetsCost,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -686,64 +695,8 @@ namespace api_finances.src.Services
 
         public async Task<byte[]> ExportPdfAsync(int baseYear, string userId)
         {
-            var previewResp = await GetPreviewAsync(baseYear, userId);
-            var prev = previewResp.Data;
-
-            var sb = new StringBuilder();
-            sb.AppendLine("%PDF-1.4");
-            sb.AppendLine("1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj");
-            sb.AppendLine("2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj");
-            sb.AppendLine("3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj");
-            sb.AppendLine("5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj");
-
-            var streamContent = new StringBuilder();
-            streamContent.AppendLine("BT");
-            streamContent.AppendLine("/F1 16 Tf");
-            streamContent.AppendLine("50 800 Td");
-            streamContent.AppendLine($"(MINHAS FINANCAS - DECLARACAO IRPF ANO-BASE {baseYear}) Tj");
-            streamContent.AppendLine("/F1 10 Tf");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine("(Aviso: Material de apoio ao preenchimento. Nao substitui orientacao de contador.) Tj");
-            streamContent.AppendLine("/F1 12 Tf");
-            streamContent.AppendLine("0 -35 Td");
-            streamContent.AppendLine($"(1. Rendimentos Tributaveis: R$ {prev?.TaxableIncome:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(2. Rendimentos Isentos e Nao Tributaveis: R$ {prev?.ExemptIncome:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(3. Rendimentos Tributacao Exclusiva: R$ {prev?.ExclusiveIncome:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(4. Pagamentos Efetuados / Deducoes: R$ {prev?.Deductions:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(5. Bens e Direitos Custo Aquisicao: R$ {prev?.AssetsAtAcquisitionCost:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(6. Dividas e Onus Reais em 31/12: R$ {prev?.DebtsAtYearEnd:N2}) Tj");
-            streamContent.AppendLine("0 -20 Td");
-            streamContent.AppendLine($"(Total de Pendencias Identificadas: {prev?.PendingCount}) Tj");
-            streamContent.AppendLine("0 -35 Td");
-            streamContent.AppendLine($"(Relatorio gerado em: {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC) Tj");
-            streamContent.AppendLine("ET");
-
-            byte[] streamBytes = Encoding.ASCII.GetBytes(streamContent.ToString());
-            sb.AppendLine($"4 0 obj <</Length {streamBytes.Length}>>");
-            sb.AppendLine("stream");
-            sb.Append(streamContent);
-            sb.AppendLine("endstream");
-            sb.AppendLine("endobj");
-
-            sb.AppendLine("xref");
-            sb.AppendLine("0 6");
-            sb.AppendLine("0000000000 65535 f ");
-            sb.AppendLine("0000000010 00000 n ");
-            sb.AppendLine("0000000060 00000 n ");
-            sb.AppendLine("0000000117 00000 n ");
-            sb.AppendLine("0000000300 00000 n ");
-            sb.AppendLine("0000000230 00000 n ");
-            sb.AppendLine("trailer <</Size 6 /Root 1 0 R>>");
-            sb.AppendLine("startxref");
-            sb.AppendLine("600");
-            sb.AppendLine("%%EOF");
-
-            byte[] pdfBytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var preview = await BuildTaxPreviewInternalAsync(baseYear, userId);
+            var (pdfBytes, sha256Hex) = PdfGenerator.GenerateIrpfReport(baseYear, preview);
 
             var snapshot = new TaxYearSnapshot
             {
@@ -751,7 +704,10 @@ namespace api_finances.src.Services
                 BaseYear = baseYear,
                 GeneratedAt = DateTime.UtcNow,
                 Format = "pdf",
-                Payload = JsonSerializer.Serialize(previewResp.Data),
+                Payload = JsonSerializer.Serialize(preview),
+                HashSha256 = sha256Hex,
+                TotalTaxableIncome = preview.TotalTaxableIncome,
+                TotalAssetsCost = preview.TotalAssetsCost,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -760,11 +716,11 @@ namespace api_finances.src.Services
             return pdfBytes;
         }
 
-        public async Task<ResponseApi<List<TaxYearSnapshot>>> GetSnapshotsAsync(string userId)
+        public async Task<ResponseApi<List<TaxYearSnapshot>>> GetSnapshotsAsync(string userId, int? baseYear = null)
         {
             try
             {
-                var list = await repository.GetSnapshotsAsync(userId);
+                var list = await repository.GetSnapshotsAsync(userId, baseYear);
                 return new(list, 200, "Snapshots listados com sucesso");
             }
             catch (Exception ex)
@@ -777,10 +733,17 @@ namespace api_finances.src.Services
         {
             try
             {
-                var cat = await repository.GetCategoryByIdAsync(categoryId);
-                if (cat == null) return new(false, 404, "Categoria não encontrada");
+                string[] validTreatments = ["TAXABLE_INCOME", "EXEMPT_INCOME", "EXCLUSIVE_INCOME", "DEDUCTION", "NONE"];
+                string treatment = request.IrTreatment?.ToUpperInvariant() ?? "";
+                if (!validTreatments.Contains(treatment))
+                {
+                    return new(false, 400, "Tratamento de IR inválido. Valores aceitos: TAXABLE_INCOME, EXEMPT_INCOME, EXCLUSIVE_INCOME, DEDUCTION, NONE.");
+                }
 
-                bool ok = await repository.UpdateCategoryTreatmentAsync(categoryId, request.IrTreatment, request.IrSubtype, userId);
+                var cat = await repository.GetCategoryByIdAsync(categoryId);
+                if (cat == null || cat.CreatedBy != userId) return new(false, 404, "Categoria não encontrada");
+
+                bool ok = await repository.UpdateCategoryTreatmentAsync(categoryId, treatment, request.IrSubtype, userId);
                 return new(ok, 200, "Tratamento de IR da categoria atualizado com sucesso");
             }
             catch (Exception ex)

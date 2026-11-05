@@ -95,9 +95,9 @@ namespace api_finances.src.Controllers
 
         [Authorize]
         [HttpGet("snapshots")]
-        public async Task<IActionResult> GetSnapshots()
+        public async Task<IActionResult> GetSnapshots([FromQuery] int? baseYear)
         {
-            var response = await service.GetSnapshotsAsync(UserId);
+            var response = await service.GetSnapshotsAsync(UserId, baseYear);
             return StatusCode(response.StatusCode, response);
         }
 

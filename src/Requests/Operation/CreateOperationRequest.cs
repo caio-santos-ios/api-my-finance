@@ -22,6 +22,8 @@ namespace api_finances.src.Requests
         public string Recurrence { get; set; } = string.Empty;
         public string Origin { get; set; } = string.Empty;
         public string OriginId { get; set; } = string.Empty;
+        public string? PayeeName { get; set; }
+        public string? PayeeDocument { get; set; }
         public DateTime Date { get; set; } = DateTime.UtcNow;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
