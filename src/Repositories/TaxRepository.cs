@@ -9,8 +9,13 @@ namespace api_finances.src.Repository
     {
         public async Task<List<Category>> GetCategoriesAsync(string userId)
         {
+            var filter = Builders<Category>.Filter.Eq(c => c.Deleted, false) &
+                         (Builders<Category>.Filter.Eq(c => c.CreatedBy, userId) |
+                          Builders<Category>.Filter.Eq(c => c.CreatedBy, "") |
+                          Builders<Category>.Filter.Eq(c => c.CreatedBy, null!));
+
             return await context.Categories
-                .Find(c => c.CreatedBy == userId && !c.Deleted)
+                .Find(filter)
                 .ToListAsync();
         }
 
@@ -29,49 +34,90 @@ namespace api_finances.src.Repository
                 .Set(c => c.UpdatedBy, userId)
                 .Set(c => c.UpdatedAt, DateTime.UtcNow);
 
-            var res = await context.Categories.UpdateOneAsync(c => c.Id == categoryId && c.CreatedBy == userId && !c.Deleted, update);
+            var res = await context.Categories.UpdateOneAsync(c => c.Id == categoryId && (c.CreatedBy == userId || c.CreatedBy == "" || c.CreatedBy == null) && !c.Deleted, update);
             return res.ModifiedCount > 0;
         }
 
         public async Task<List<Operation>> GetOperationsByPeriodAsync(string userId, DateTime start, DateTime end)
         {
-            return await context.Operations
-                .Find(o => o.CreatedBy == userId && !o.Deleted && o.CreatedAt >= start && o.CreatedAt <= end)
+            var filter = Builders<Operation>.Filter.Eq(o => o.Deleted, false) &
+                         (Builders<Operation>.Filter.Eq(o => o.CreatedBy, userId) |
+                          Builders<Operation>.Filter.Eq(o => o.CreatedBy, "") |
+                          Builders<Operation>.Filter.Eq(o => o.CreatedBy, null!)) &
+                         Builders<Operation>.Filter.Gte(o => o.CreatedAt, start.AddDays(-2)) &
+                         Builders<Operation>.Filter.Lte(o => o.CreatedAt, end.AddDays(2));
+
+            var list = await context.Operations
+                .Find(filter)
                 .ToListAsync();
+
+            return list
+                .Where(o => o.CreatedAt.Year == start.Year || o.CreatedAt.ToLocalTime().Year == start.Year || (o.CreatedAt >= start && o.CreatedAt <= end))
+                .ToList();
         }
 
         public async Task<List<Asset>> GetAssetsAsync(string userId)
         {
+            var filter = Builders<Asset>.Filter.Eq(a => a.Deleted, false) &
+                         (Builders<Asset>.Filter.Eq(a => a.CreatedBy, userId) |
+                          Builders<Asset>.Filter.Eq(a => a.CreatedBy, "") |
+                          Builders<Asset>.Filter.Eq(a => a.CreatedBy, null!)) &
+                         Builders<Asset>.Filter.Ne(a => a.IncludeInIr, false);
+
             return await context.Assets
-                .Find(a => a.CreatedBy == userId && !a.Deleted && a.IncludeInIr)
+                .Find(filter)
                 .ToListAsync();
         }
 
         public async Task<List<InvestmentAsset>> GetInvestmentAssetsAsync(string userId)
         {
+            var filter = Builders<InvestmentAsset>.Filter.Eq(a => a.Deleted, false) &
+                         (Builders<InvestmentAsset>.Filter.Eq(a => a.UserId, userId) |
+                          Builders<InvestmentAsset>.Filter.Eq(a => a.CreatedBy, userId) |
+                          Builders<InvestmentAsset>.Filter.Eq(a => a.CreatedBy, "") |
+                          Builders<InvestmentAsset>.Filter.Eq(a => a.CreatedBy, null!));
+
             return await context.InvestmentAssets
-                .Find(a => (a.UserId == userId || a.CreatedBy == userId) && !a.Deleted)
+                .Find(filter)
                 .ToListAsync();
         }
 
         public async Task<List<InvestmentTransaction>> GetInvestmentTransactionsAsync(string userId, DateTime upToDate)
         {
+            var filter = Builders<InvestmentTransaction>.Filter.Eq(t => t.Deleted, false) &
+                         (Builders<InvestmentTransaction>.Filter.Eq(t => t.UserId, userId) |
+                          Builders<InvestmentTransaction>.Filter.Eq(t => t.CreatedBy, userId) |
+                          Builders<InvestmentTransaction>.Filter.Eq(t => t.CreatedBy, "") |
+                          Builders<InvestmentTransaction>.Filter.Eq(t => t.CreatedBy, null!)) &
+                         Builders<InvestmentTransaction>.Filter.Lte(t => t.Date, upToDate.AddDays(2));
+
             return await context.InvestmentTransactions
-                .Find(t => (t.UserId == userId || t.CreatedBy == userId) && !t.Deleted && t.Date <= upToDate)
+                .Find(filter)
                 .ToListAsync();
         }
 
         public async Task<List<Debt>> GetDebtsAsync(string userId)
         {
+            var filter = Builders<Debt>.Filter.Eq(d => d.Deleted, false) &
+                         (Builders<Debt>.Filter.Eq(d => d.CreatedBy, userId) |
+                          Builders<Debt>.Filter.Eq(d => d.CreatedBy, "") |
+                          Builders<Debt>.Filter.Eq(d => d.CreatedBy, null!));
+
             return await context.Debts
-                .Find(d => d.CreatedBy == userId && !d.Deleted)
+                .Find(filter)
                 .ToListAsync();
         }
 
         public async Task<List<DebtPayment>> GetDebtPaymentsAsync(string userId, DateTime upToDate)
         {
+            var filter = Builders<DebtPayment>.Filter.Eq(p => p.Deleted, false) &
+                         (Builders<DebtPayment>.Filter.Eq(p => p.CreatedBy, userId) |
+                          Builders<DebtPayment>.Filter.Eq(p => p.CreatedBy, "") |
+                          Builders<DebtPayment>.Filter.Eq(p => p.CreatedBy, null!)) &
+                         Builders<DebtPayment>.Filter.Lte(p => p.Date, upToDate.AddDays(2));
+
             return await context.DebtPayments
-                .Find(p => p.CreatedBy == userId && !p.Deleted && p.Date <= upToDate)
+                .Find(filter)
                 .ToListAsync();
         }
 

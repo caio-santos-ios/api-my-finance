@@ -29,4 +29,7 @@ public class Goal : ModelBase
 
     [BsonElement("status")]
     public string Status { get; set; } = "in_progress";
+
+    [BsonElement("default_investment_asset_id")]
+    public string? DefaultInvestmentAssetId { get; set; }
 }

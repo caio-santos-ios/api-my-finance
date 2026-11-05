@@ -9,7 +9,9 @@ using MongoDB.Bson;
 namespace api_finances.src.Services
 {
     public class GoalService(
-        IGoalRepository repository
+        IGoalRepository repository,
+        IInvestmentAssetRepository investmentAssetRepository,
+        IInvestmentTransactionRepository investmentTransactionRepository
     ) : IGoalService
     {
         public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
@@ -240,17 +242,44 @@ namespace api_finances.src.Services
             try
             {
                 List<GoalTransaction> transactions = await repository.GetTransactionsAsync(goalId);
-                List<dynamic> result = transactions.Select(t => new
+
+                var assetIds = transactions
+                    .Where(t => !string.IsNullOrEmpty(t.InvestmentAssetId))
+                    .Select(t => t.InvestmentAssetId!)
+                    .Distinct()
+                    .ToList();
+
+                var assetMap = new Dictionary<string, InvestmentAsset>();
+                foreach (var assetId in assetIds)
                 {
-                    id = t.Id,
-                    goalId = t.GoalId,
-                    type = t.Type,
-                    value = t.Value,
-                    bankId = t.BankId,
-                    date = t.Date,
-                    note = t.Note,
-                    createdAt = t.CreatedAt
-                }).Cast<dynamic>().ToList();
+                    var asset = await investmentAssetRepository.GetByIdAsync(assetId);
+                    if (asset != null) assetMap[assetId] = asset;
+                }
+
+                List<dynamic> result = transactions.Select(t =>
+                {
+                    InvestmentAsset? asset = !string.IsNullOrEmpty(t.InvestmentAssetId) && assetMap.TryGetValue(t.InvestmentAssetId, out var a) ? a : null;
+                    string? assetLabel = asset != null
+                        ? (!string.IsNullOrWhiteSpace(asset.Ticker) ? $"{asset.Ticker} - {asset.Name}" : asset.Name)
+                        : null;
+
+                    return (dynamic)new
+                    {
+                        id = t.Id,
+                        goalId = t.GoalId,
+                        type = t.Type,
+                        value = t.Value,
+                        bankId = t.BankId,
+                        date = t.Date,
+                        note = t.Note,
+                        createdAt = t.CreatedAt,
+                        investmentAssetId = t.InvestmentAssetId,
+                        investmentTransactionId = t.InvestmentTransactionId,
+                        createdInvestmentTransaction = t.CreatedInvestmentTransaction,
+                        investmentAssetName = assetLabel,
+                        investmentAssetTicker = asset?.Ticker
+                    };
+                }).ToList();
 
                 return new(result, 200, "Transações de meta listadas com sucesso");
             }
@@ -266,6 +295,16 @@ namespace api_finances.src.Services
             {
                 Goal? goal = await repository.GetByIdAsync(goalId);
                 if (goal == null) return new(null, 404, "Meta não encontrada");
+
+                InvestmentAsset? linkedAsset = null;
+                if (!string.IsNullOrWhiteSpace(request.InvestmentAssetId))
+                {
+                    linkedAsset = await investmentAssetRepository.GetByIdAsync(request.InvestmentAssetId);
+                    if (linkedAsset == null || (!string.IsNullOrEmpty(request.CreatedBy) && linkedAsset.UserId != request.CreatedBy && linkedAsset.CreatedBy != request.CreatedBy))
+                    {
+                        return new(null, 400, "Ativo de investimento não encontrado.");
+                    }
+                }
 
                 decimal value = Math.Abs(request.Value);
                 if (request.Type == "withdraw")
@@ -291,6 +330,35 @@ namespace api_finances.src.Services
                 goal.UpdatedBy = request.CreatedBy ?? "";
                 await repository.UpdateAsync(goal);
 
+                string? createdInvestTxId = null;
+                bool createdInvestTx = false;
+
+                if (linkedAsset != null && request.CreateInvestmentTransaction && (string.IsNullOrEmpty(request.Type) || request.Type == "deposit"))
+                {
+                    InvestmentTransaction investTx = new()
+                    {
+                        UserId = request.CreatedBy ?? "",
+                        CreatedBy = request.CreatedBy ?? "",
+                        InvestmentAssetId = linkedAsset.Id,
+                        BrokerId = !string.IsNullOrWhiteSpace(request.BrokerId) ? request.BrokerId : (request.BankId ?? ""),
+                        Kind = "BUY",
+                        Date = request.Date ?? DateTime.UtcNow,
+                        Quantity = 1,
+                        UnitPrice = value,
+                        Fees = 0,
+                        Amount = value,
+                        Notes = !string.IsNullOrWhiteSpace(request.Note)
+                            ? $"Aporte na meta \"{goal.Name}\": {request.Note}"
+                            : $"Aporte automático referente à meta: {goal.Name}",
+                        CreateOperation = false,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    var txResult = await investmentTransactionRepository.CreateAsync(investTx);
+                    createdInvestTxId = txResult?.Id;
+                    createdInvestTx = true;
+                }
+
                 GoalTransaction transaction = new()
                 {
                     GoalId = goalId,
@@ -299,6 +367,9 @@ namespace api_finances.src.Services
                     BankId = request.BankId,
                     Date = request.Date ?? DateTime.UtcNow,
                     Note = request.Note,
+                    InvestmentAssetId = linkedAsset?.Id,
+                    InvestmentTransactionId = createdInvestTxId,
+                    CreatedInvestmentTransaction = createdInvestTx,
                     CreatedBy = request.CreatedBy ?? "",
                     CreatedAt = DateTime.UtcNow
                 };

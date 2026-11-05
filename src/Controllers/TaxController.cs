@@ -17,8 +17,7 @@ namespace api_finances.src.Controllers
 
         [Authorize]
         [HttpGet("preview")]
-        [HttpGet("{baseYear:int}/preview")]
-        public async Task<IActionResult> GetPreview(int? baseYear)
+        public async Task<IActionResult> GetPreview([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetPreviewAsync(year, UserId);
@@ -26,9 +25,16 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/preview")]
+        public async Task<IActionResult> GetPreviewByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetPreviewAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("income")]
-        [HttpGet("{baseYear:int}/income")]
-        public async Task<IActionResult> GetIncome(int? baseYear)
+        public async Task<IActionResult> GetIncome([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetIncomeAsync(year, UserId);
@@ -36,9 +42,16 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/income")]
+        public async Task<IActionResult> GetIncomeByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetIncomeAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("deductions")]
-        [HttpGet("{baseYear:int}/deductions")]
-        public async Task<IActionResult> GetDeductions(int? baseYear)
+        public async Task<IActionResult> GetDeductions([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetDeductionsAsync(year, UserId);
@@ -46,9 +59,16 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/deductions")]
+        public async Task<IActionResult> GetDeductionsByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetDeductionsAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("assets")]
-        [HttpGet("{baseYear:int}/assets")]
-        public async Task<IActionResult> GetAssets(int? baseYear)
+        public async Task<IActionResult> GetAssets([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetAssetsAsync(year, UserId);
@@ -56,9 +76,16 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/assets")]
+        public async Task<IActionResult> GetAssetsByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetAssetsAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("debts")]
-        [HttpGet("{baseYear:int}/debts")]
-        public async Task<IActionResult> GetDebts(int? baseYear)
+        public async Task<IActionResult> GetDebts([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetDebtsAsync(year, UserId);
@@ -66,9 +93,16 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/debts")]
+        public async Task<IActionResult> GetDebtsByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetDebtsAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("pending")]
-        [HttpGet("{baseYear:int}/pending")]
-        public async Task<IActionResult> GetPending(int? baseYear)
+        public async Task<IActionResult> GetPending([FromQuery] int? baseYear)
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
             var response = await service.GetPendingAsync(year, UserId);
@@ -76,14 +110,33 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{baseYear:int}/pending")]
+        public async Task<IActionResult> GetPendingByRoute([FromRoute] int baseYear)
+        {
+            var response = await service.GetPendingAsync(baseYear, UserId);
+            return StatusCode(response.StatusCode, response);
+        }
+
+        [Authorize]
         [HttpGet("export")]
-        [HttpGet("{baseYear:int}/export")]
         [HttpPost("export")]
-        [HttpPost("{baseYear:int}/export")]
-        public async Task<IActionResult> Export(int? baseYear, [FromQuery] string format = "xlsx")
+        public async Task<IActionResult> Export([FromQuery] int? baseYear, [FromQuery] string format = "xlsx")
         {
             int year = baseYear ?? (DateTime.UtcNow.Year - 1);
-            if (format?.ToLower() == "pdf")
+            return await HandleExportAsync(year, format);
+        }
+
+        [Authorize]
+        [HttpGet("{baseYear:int}/export")]
+        [HttpPost("{baseYear:int}/export")]
+        public async Task<IActionResult> ExportByRoute([FromRoute] int baseYear, [FromQuery] string format = "xlsx")
+        {
+            return await HandleExportAsync(baseYear, format);
+        }
+
+        private async Task<IActionResult> HandleExportAsync(int year, string format)
+        {
+            if (format?.ToLowerInvariant() == "pdf")
             {
                 byte[] pdfBytes = await service.ExportPdfAsync(year, UserId);
                 return File(pdfBytes, "application/pdf", $"IRPF_{year}.pdf");

@@ -26,4 +26,13 @@ public class GoalTransaction : ModelBase
 
     [BsonElement("note")]
     public string? Note { get; set; }
+
+    [BsonElement("investment_asset_id")]
+    public string? InvestmentAssetId { get; set; }
+
+    [BsonElement("investment_transaction_id")]
+    public string? InvestmentTransactionId { get; set; }
+
+    [BsonElement("created_investment_transaction")]
+    public bool CreatedInvestmentTransaction { get; set; } = false;
 }

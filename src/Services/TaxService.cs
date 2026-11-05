@@ -32,13 +32,15 @@ namespace api_finances.src.Services
 
             foreach (var tx in relevant)
             {
-                string k = tx.Kind?.ToUpperInvariant() ?? "";
-                if (k == "BUY" || k == "COMPRA")
+                string k = (tx.Kind ?? "").Trim().ToUpperInvariant();
+                decimal txCost = tx.Amount > 0 ? tx.Amount : ((tx.Quantity * tx.UnitPrice) + tx.Fees);
+
+                if (k == "BUY" || k == "COMPRA" || k == "APORTE" || k == "PURCHASE")
                 {
                     totalQty += tx.Quantity;
-                    totalCost += tx.Amount;
+                    totalCost += txCost;
                 }
-                else if (k == "SELL" || k == "VENDA")
+                else if (k == "SELL" || k == "VENDA" || k == "RESGATE")
                 {
                     if (totalQty > 0)
                     {
@@ -66,38 +68,65 @@ namespace api_finances.src.Services
             List<TaxIncomeItemDto> exempt = [];
             List<TaxIncomeItemDto> exclusive = [];
 
-            foreach (var op in validOps.Where(o => o.Type == "income" && o.Origin != "investment"))
+            foreach (var op in validOps.Where(o => (o.Type?.ToLowerInvariant() == "income" || o.Type?.ToLowerInvariant() == "receita") && o.Origin != "investment"))
             {
-                if (categoryMap.TryGetValue(op.CategoryId, out var cat))
+                categoryMap.TryGetValue(op.CategoryId ?? "", out var cat);
+                string catName = cat?.Name ?? "Rendimentos";
+                string treatment = (cat?.IrTreatment ?? "").Trim().ToUpperInvariant();
+                string catNameLower = catName.ToLowerInvariant();
+                string opDescLower = (op.Description ?? "").ToLowerInvariant();
+
+                bool isLikelyTaxable = catNameLower.Contains("sal") ||
+                                       catNameLower.Contains("remunera") ||
+                                       catNameLower.Contains("pró-labore") ||
+                                       catNameLower.Contains("pro-labore") ||
+                                       catNameLower.Contains("holerite") ||
+                                       catNameLower.Contains("trabalho") ||
+                                       catNameLower.Contains("clt") ||
+                                       catNameLower.Contains("ordenado") ||
+                                       opDescLower.Contains("sal") ||
+                                       opDescLower.Contains("remunera") ||
+                                       opDescLower.Contains("pró-labore") ||
+                                       opDescLower.Contains("pro-labore") ||
+                                       opDescLower.Contains("holerite") ||
+                                       opDescLower.Contains("trabalho") ||
+                                       opDescLower.Contains("pagamento") ||
+                                       opDescLower.Contains("adiantamento") ||
+                                       opDescLower.Contains("13º") ||
+                                       opDescLower.Contains("decimo") ||
+                                       opDescLower.Contains("férias") ||
+                                       opDescLower.Contains("ferias");
+
+                var item = new TaxIncomeItemDto
                 {
-                    var item = new TaxIncomeItemDto
-                    {
-                        Id = op.Id,
-                        CategoryName = cat.Name,
-                        CategoryId = cat.Id,
-                        Description = op.Description,
-                        PayerDocument = op.PayeeDocument,
-                        TotalValue = op.Value,
-                        Date = op.CreatedAt,
-                        IrTreatment = cat.IrTreatment,
-                        Source = "operation"
-                    };
+                    Id = op.Id,
+                    CategoryName = catName,
+                    CategoryId = op.CategoryId ?? "",
+                    Description = op.Description,
+                    PayerDocument = op.PayeeDocument,
+                    TotalValue = op.Value,
+                    Date = op.CreatedAt,
+                    IrTreatment = cat?.IrTreatment ?? "TAXABLE_INCOME",
+                    Source = "operation"
+                };
 
-                    string treatment = (cat.IrTreatment ?? "").Trim().ToUpperInvariant();
-                    string catNameLower = (cat.Name ?? "").Trim().ToLowerInvariant();
-                    bool isLikelyTaxable = catNameLower.Contains("sal") ||
-                                           catNameLower.Contains("remunera") ||
-                                           catNameLower.Contains("pró-labore") ||
-                                           catNameLower.Contains("pro-labore") ||
-                                           catNameLower.Contains("holerite");
-
-                    if (treatment == "TAXABLE_INCOME" || treatment == "TAXABLE" || treatment == "TRIBUTAVEL" || (string.IsNullOrEmpty(treatment) && isLikelyTaxable))
-                    {
-                        item.IrTreatment = "TAXABLE_INCOME";
-                        taxable.Add(item);
-                    }
-                    else if (treatment == "EXEMPT_INCOME" || treatment == "EXEMPT" || treatment == "ISENTO") exempt.Add(item);
-                    else if (treatment == "EXCLUSIVE_INCOME" || treatment == "EXCLUSIVE" || treatment == "EXCLUSIVO") exclusive.Add(item);
+                if (treatment == "TAXABLE_INCOME" || treatment == "TAXABLE" || treatment == "TRIBUTAVEL")
+                {
+                    item.IrTreatment = "TAXABLE_INCOME";
+                    taxable.Add(item);
+                }
+                else if (treatment == "EXEMPT_INCOME" || treatment == "EXEMPT" || treatment == "ISENTO")
+                {
+                    exempt.Add(item);
+                }
+                else if (treatment == "EXCLUSIVE_INCOME" || treatment == "EXCLUSIVE" || treatment == "EXCLUSIVO")
+                {
+                    exclusive.Add(item);
+                }
+                else if (isLikelyTaxable || string.IsNullOrEmpty(treatment) || treatment == "NONE")
+                {
+                    item.IrTreatment = "TAXABLE_INCOME";
+                    taxable.Add(item);
                 }
             }
 
@@ -174,9 +203,12 @@ namespace api_finances.src.Services
             var patrimonyAssets = await repository.GetAssetsAsync(userId);
             foreach (var a in patrimonyAssets)
             {
-                bool heldInPrevYear = (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= prevEnd) &&
+                DateTime? effectiveAcq = a.AcquisitionDate ?? (a.CreatedAt != default ? a.CreatedAt : null);
+                bool hasAcqDate = effectiveAcq.HasValue;
+
+                bool heldInPrevYear = effectiveAcq.HasValue && effectiveAcq.Value <= prevEnd &&
                                       (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > prevEnd);
-                bool heldInBaseYear = (!a.AcquisitionDate.HasValue || a.AcquisitionDate.Value <= end) &&
+                bool heldInBaseYear = effectiveAcq.HasValue && effectiveAcq.Value <= end &&
                                       (!a.Disposed || !a.DisposalDate.HasValue || a.DisposalDate.Value > end);
 
                 if (heldInPrevYear || heldInBaseYear)
@@ -208,27 +240,41 @@ namespace api_finances.src.Services
                 var (prevQty, prevCost) = CalculateInvestmentPosition(assetTxs, prevEnd);
                 var (baseQty, baseCost) = CalculateInvestmentPosition(assetTxs, end);
 
-                if (prevQty > 0 || baseQty > 0)
+                if (prevQty > 0 || baseQty > 0 || invAsset.ManualPrice > 0 || assetTxs.Count > 0)
                 {
-                    string code = invAsset.Type?.ToUpperInvariant() == "STOCK" ? "31" : (invAsset.Type?.ToUpperInvariant() == "FII" ? "73" : "45");
-                    string discrimination = baseQty > 0
-                        ? $"{baseQty} cotas/ações de {invAsset.Ticker} ({invAsset.Name}) pelo custo médio de aquisição"
-                        : $"Posição zerada em {invAsset.Ticker} ({invAsset.Name}) durante o ano-base";
+                    decimal displayQty = baseQty > 0 ? baseQty : (assetTxs.Count > 0 ? assetTxs.Sum(t => t.Quantity) : 1);
+                    decimal displayCost = baseCost > 0 ? baseCost : (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : 0);
+                    decimal marketVal = displayQty * (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : (displayQty > 0 && displayCost > 0 ? (displayCost / displayQty) : 0));
 
-                    decimal marketVal = baseQty * (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : (baseQty > 0 ? (baseCost / baseQty) : 0));
+                    string typeUpper = (invAsset.Type ?? "").Trim().ToUpperInvariant();
+                    string code = typeUpper switch
+                    {
+                        "STOCK" or "ACAO" or "AÇÃO" => "31",
+                        "FII" or "REIT" => "73",
+                        "FIXED_INCOME" or "RENDA_FIXA" => "45",
+                        "ETF" => "74",
+                        "CRYPTO" or "CRIPTO" => "81",
+                        _ => "99"
+                    };
+
+                    string discrimination = displayQty > 0 && displayCost > 0
+                        ? $"{displayQty} cotas/títulos de {invAsset.Ticker} ({invAsset.Name}) pelo custo de aquisição"
+                        : (!string.IsNullOrWhiteSpace(invAsset.Ticker)
+                            ? $"Ativo {invAsset.Ticker} ({invAsset.Name}) registrado na carteira de investimentos"
+                            : $"Ativo {invAsset.Name} registrado na carteira de investimentos");
 
                     assetsList.Add(new TaxAssetItemDto
                     {
                         Id = invAsset.Id,
                         Code = code,
-                        Name = $"{invAsset.Ticker} - {invAsset.Name}",
+                        Name = !string.IsNullOrWhiteSpace(invAsset.Ticker) ? $"{invAsset.Ticker} - {invAsset.Name}" : invAsset.Name,
                         Type = invAsset.Type ?? "STOCK",
                         Discrimination = discrimination,
                         SituationPreviousYear = prevCost,
-                        SituationBaseYear = baseCost,
+                        SituationBaseYear = displayCost,
                         CurrentMarketValue = marketVal,
                         AcquisitionDate = null,
-                        MissingAcquisitionValue = false,
+                        MissingAcquisitionValue = displayCost <= 0,
                         Source = "investment"
                     });
                 }
@@ -292,6 +338,21 @@ namespace api_finances.src.Services
                     Type = "asset_missing_value",
                     Title = "Bem sem custo de aquisição",
                     Description = $"O bem \"{a.Name}\" está sem custo de aquisição informado.",
+                    Route = "/patrimony",
+                    EntityId = a.Id,
+                    EntityName = a.Name,
+                    Severity = "warning",
+                    ActionType = "edit_asset"
+                });
+            }
+
+            foreach (var a in assetsList.Where(x => x.SituationBaseYear > 0 && !x.AcquisitionDate.HasValue && x.Source == "patrimony"))
+            {
+                pendingsList.Add(new TaxPendingItemDto
+                {
+                    Type = "asset_missing_acquisition_date",
+                    Title = "Bem sem data de aquisição",
+                    Description = $"O bem \"{a.Name}\" está sem data de aquisição informada.",
                     Route = "/patrimony",
                     EntityId = a.Id,
                     EntityName = a.Name,

@@ -9,5 +9,9 @@ namespace api_finances.src.Requests
         public DateTime? Date { get; set; }
         public string? Note { get; set; }
         public string? CreatedBy { get; set; }
+
+        public string? InvestmentAssetId { get; set; }
+        public string? BrokerId { get; set; }
+        public bool CreateInvestmentTransaction { get; set; } = false;
     }
 }
