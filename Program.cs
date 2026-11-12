@@ -14,7 +14,8 @@ builder.AddContext();
 builder.AddBuilderServices();
 builder.AddBuilderHelpers();
 builder.Services.AddControllers();
-builder.WebHost.UseUrls("http://0.0.0.0:5140");
+string port = Environment.GetEnvironmentVariable("PORT") ?? "5140";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 builder.Services.AddAuthentication(options =>
 {

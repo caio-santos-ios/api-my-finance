@@ -5,7 +5,7 @@ COPY *.csproj .
 RUN dotnet restore
 
 COPY . .
-RUN dotnet publish -c Release -o /app/publish --no-restore -p:UseSharedCompilation=false -p:NoWarn="NU1901;NU1902;NU1903;NU1904"
+RUN dotnet publish -c Release -o /app/publish --no-restore -p:UseSharedCompilation=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
