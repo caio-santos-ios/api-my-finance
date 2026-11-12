@@ -239,11 +239,13 @@ namespace api_finances.src.Services
                 var assetTxs = invTransactions.Where(t => t.InvestmentAssetId == invAsset.Id).ToList();
                 var (prevQty, prevCost) = CalculateInvestmentPosition(assetTxs, prevEnd);
                 var (baseQty, baseCost) = CalculateInvestmentPosition(assetTxs, end);
+                bool hadActivityInYear = assetTxs.Any(t => t.Date >= start && t.Date <= end);
+                bool manualAssetInPeriod = assetTxs.Count == 0 && invAsset.CreatedAt <= end && invAsset.ManualPrice > 0;
 
-                if (prevQty > 0 || baseQty > 0 || invAsset.ManualPrice > 0 || assetTxs.Count > 0)
+                if (prevQty > 0 || baseQty > 0 || hadActivityInYear || manualAssetInPeriod)
                 {
-                    decimal displayQty = baseQty > 0 ? baseQty : (assetTxs.Count > 0 ? assetTxs.Sum(t => t.Quantity) : 1);
-                    decimal displayCost = baseCost > 0 ? baseCost : (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : 0);
+                    decimal displayQty = baseQty > 0 ? baseQty : (prevQty > 0 ? 0 : (manualAssetInPeriod ? 1 : 0));
+                    decimal displayCost = baseQty > 0 ? baseCost : (prevQty > 0 ? 0 : (manualAssetInPeriod ? invAsset.ManualPrice : 0));
                     decimal marketVal = displayQty * (invAsset.ManualPrice > 0 ? invAsset.ManualPrice : (displayQty > 0 && displayCost > 0 ? (displayCost / displayQty) : 0));
 
                     string typeUpper = (invAsset.Type ?? "").Trim().ToUpperInvariant();
@@ -257,11 +259,13 @@ namespace api_finances.src.Services
                         _ => "99"
                     };
 
-                    string discrimination = displayQty > 0 && displayCost > 0
-                        ? $"{displayQty} cotas/títulos de {invAsset.Ticker} ({invAsset.Name}) pelo custo de aquisição"
-                        : (!string.IsNullOrWhiteSpace(invAsset.Ticker)
-                            ? $"Ativo {invAsset.Ticker} ({invAsset.Name}) registrado na carteira de investimentos"
-                            : $"Ativo {invAsset.Name} registrado na carteira de investimentos");
+                    string discrimination = baseQty > 0
+                        ? $"{baseQty} cotas/títulos de {invAsset.Ticker} ({invAsset.Name}) pelo custo de aquisição"
+                        : (prevQty > 0 || hadActivityInYear
+                            ? $"Posição zerada em {invAsset.Ticker} ({invAsset.Name}) durante o ano-base"
+                            : (!string.IsNullOrWhiteSpace(invAsset.Ticker)
+                                ? $"Ativo {invAsset.Ticker} ({invAsset.Name}) registrado na carteira de investimentos"
+                                : $"Ativo {invAsset.Name} registrado na carteira de investimentos"));
 
                     assetsList.Add(new TaxAssetItemDto
                     {
@@ -274,7 +278,7 @@ namespace api_finances.src.Services
                         SituationBaseYear = displayCost,
                         CurrentMarketValue = marketVal,
                         AcquisitionDate = null,
-                        MissingAcquisitionValue = displayCost <= 0,
+                        MissingAcquisitionValue = (baseQty > 0 && displayCost <= 0) || (manualAssetInPeriod && displayCost <= 0),
                         Source = "investment"
                     });
                 }

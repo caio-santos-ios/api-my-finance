@@ -32,5 +32,14 @@ namespace api_finances.src.Models
 
         [BsonElement("contractedRate")]
         public decimal? ContractedRate { get; set; }
+
+        [BsonElement("source")]
+        public string Source { get; set; } = "MANUAL";
+
+        [BsonElement("externalSymbol")]
+        public string? ExternalSymbol { get; set; }
+
+        [BsonElement("lastQuoteAt")]
+        public DateTime? LastQuoteAt { get; set; }
     }
 }

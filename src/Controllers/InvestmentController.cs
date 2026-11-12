@@ -12,13 +12,32 @@ namespace api_finances.src.Controllers
     [ApiController]
     public class InvestmentController(IInvestmentService service) : ControllerBase
     {
-        private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        private string UserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("id")?.Value
+            ?? "";
 
         [Authorize]
         [HttpGet("investment-assets")]
         public async Task<IActionResult> GetAssets()
         {
             ResponseApi<List<InvestmentAsset>> response = await service.GetAssetsAsync(UserId);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
+        [HttpGet("investment-assets/search")]
+        public async Task<IActionResult> SearchMarketAssets([FromQuery] string? q)
+        {
+            var response = await service.SearchMarketAssetsAsync(UserId, q ?? string.Empty);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
+        [HttpPost("investment-assets/from-market")]
+        public async Task<IActionResult> CreateFromMarket([FromBody] CreateMarketAssetRequest request)
+        {
+            var response = await service.CreateFromMarketAsync(UserId, request);
             return StatusCode(response.StatusCode, response.Result);
         }
 

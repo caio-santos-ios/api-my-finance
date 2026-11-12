@@ -77,6 +77,7 @@ namespace api_finances.src.Configuration
 
             builder.Services.AddTransient<IInvestmentAssetRepository, InvestmentAssetRepository>();
             builder.Services.AddTransient<IInvestmentTransactionRepository, InvestmentTransactionRepository>();
+            builder.Services.AddHttpClient<IQuoteProvider, BrapiQuoteProvider>();
             builder.Services.AddTransient<IInvestmentService, InvestmentService>();
 
             builder.Services.AddTransient<IRecurringTransactionService, RecurringTransactionService>();
@@ -90,6 +91,7 @@ namespace api_finances.src.Configuration
 
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
             builder.Services.AddHostedService<RecurringOperationsWork>();
+            builder.Services.AddHostedService<QuotesUpdateWork>();
 
             Account account = new(
                 Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME"),

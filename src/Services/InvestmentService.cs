@@ -3,6 +3,7 @@ using api_finances.src.Interfaces;
 using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests;
+using api_finances.src.Shared.DTOs;
 using MongoDB.Driver;
 
 namespace api_finances.src.Services
@@ -11,7 +12,8 @@ namespace api_finances.src.Services
         AppDbContext context,
         IInvestmentAssetRepository assetRepository,
         IInvestmentTransactionRepository transactionRepository,
-        IOperationRepository operationRepository
+        IOperationRepository operationRepository,
+        IQuoteProvider quoteProvider
     ) : IInvestmentService
     {
         public async Task<ResponseApi<List<InvestmentAsset>>> GetAssetsAsync(string userId)
@@ -45,14 +47,23 @@ namespace api_finances.src.Services
         {
             try
             {
+                string assetType = (request.Type ?? "").Trim().ToUpperInvariant();
+                string[] variableIncomeTypes = ["STOCK", "FII", "ETF", "BDR", "ACAO", "AÇÃO", "REIT"];
+                if (variableIncomeTypes.Contains(assetType))
+                {
+                    return new(null, 400, "Ativos de renda variável (Ações, FIIs, ETFs e BDRs) não podem ser cadastrados manualmente. Utilize a busca de mercado (/investment-assets/from-market). Apenas Renda Fixa ou Outros podem ser cadastrados manualmente.");
+                }
+
                 InvestmentAsset asset = new()
                 {
                     UserId = userId,
                     CreatedBy = userId,
                     Ticker = request.Ticker.Trim().ToUpperInvariant(),
+                    ExternalSymbol = !string.IsNullOrWhiteSpace(request.Ticker) ? request.Ticker.Trim().ToUpperInvariant() : null,
                     Name = request.Name.Trim(),
-                    Type = request.Type.Trim().ToUpperInvariant(),
+                    Type = assetType,
                     Currency = string.IsNullOrWhiteSpace(request.Currency) ? "BRL" : request.Currency.Trim().ToUpperInvariant(),
+                    Source = "MANUAL",
                     ManualPrice = request.ManualPrice,
                     MaturityDate = request.MaturityDate,
                     ContractedRate = request.ContractedRate
@@ -64,6 +75,129 @@ namespace api_finances.src.Services
             catch (Exception ex)
             {
                 return new(null, 500, $"Erro ao criar ativo: {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<List<MarketAssetSearchResultDto>>> SearchMarketAssetsAsync(string userId, string query)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+                {
+                    return new([], 400, "O termo de busca deve conter no mínimo 2 caracteres.");
+                }
+
+                List<InvestmentAsset> userAssets = await assetRepository.GetAllByUserAsync(userId);
+                HashSet<string> registeredSymbols = userAssets
+                    .Select(a => (!string.IsNullOrEmpty(a.ExternalSymbol) ? a.ExternalSymbol : a.Ticker).Trim().ToUpperInvariant())
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToHashSet();
+
+                List<MarketAssetResult> marketResults = await quoteProvider.SearchAsync(query.Trim());
+
+                List<MarketAssetSearchResultDto> results = marketResults.Select(r => new MarketAssetSearchResultDto
+                {
+                    Symbol = r.Symbol,
+                    Name = r.Name,
+                    Type = r.Type,
+                    AlreadyRegistered = registeredSymbols.Contains(r.Symbol.ToUpperInvariant())
+                }).ToList();
+
+                return new(results, 200, "Ativos de mercado buscados com sucesso");
+            }
+            catch (Exception ex)
+            {
+                return new([], 500, $"Erro ao buscar ativos de mercado: {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<MarketAssetCreateResultDto>> CreateFromMarketAsync(string userId, CreateMarketAssetRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.Symbol))
+                    return new(null, 400, "O símbolo (ticker) é obrigatório.");
+
+                string cleanSymbol = request.Symbol.Trim().ToUpperInvariant();
+
+                List<InvestmentAsset> userAssets = await assetRepository.GetAllByUserAsync(userId);
+                InvestmentAsset? existing = userAssets.FirstOrDefault(a =>
+                    (!string.IsNullOrEmpty(a.ExternalSymbol) && a.ExternalSymbol.Equals(cleanSymbol, StringComparison.OrdinalIgnoreCase)) ||
+                    a.Ticker.Equals(cleanSymbol, StringComparison.OrdinalIgnoreCase));
+
+                if (existing != null)
+                {
+                    var quoteInDb = await context.PriceQuotes.Find(q => q.Symbol == cleanSymbol).FirstOrDefaultAsync();
+                    return new(new MarketAssetCreateResultDto
+                    {
+                        AlreadyExisted = true,
+                        Asset = existing,
+                        CurrentPrice = quoteInDb?.Price > 0 ? quoteInDb.Price : existing.ManualPrice,
+                        LastQuoteAt = quoteInDb?.QuotedAt ?? existing.LastQuoteAt
+                    }, 200, "Ativo já cadastrado na sua carteira.");
+                }
+
+                var quote = await quoteProvider.GetQuoteAsync(cleanSymbol);
+
+                string name = !string.IsNullOrWhiteSpace(request.Name) ? request.Name.Trim() : cleanSymbol;
+                string type = !string.IsNullOrWhiteSpace(request.Type) ? request.Type.Trim().ToUpperInvariant() : "STOCK";
+
+                if (name.Equals(cleanSymbol, StringComparison.OrdinalIgnoreCase))
+                {
+                    var search = await quoteProvider.SearchAsync(cleanSymbol);
+                    var matched = search.FirstOrDefault(s => s.Symbol.Equals(cleanSymbol, StringComparison.OrdinalIgnoreCase));
+                    if (matched != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(matched.Name)) name = matched.Name;
+                        if (string.IsNullOrWhiteSpace(request.Type) || request.Type == "STOCK") type = matched.Type;
+                    }
+                }
+
+                decimal price = quote?.Price ?? 0;
+                DateTime? quotedAt = quote?.QuotedAt;
+
+                InvestmentAsset asset = new()
+                {
+                    UserId = userId,
+                    CreatedBy = userId,
+                    Ticker = cleanSymbol,
+                    ExternalSymbol = cleanSymbol,
+                    Name = name,
+                    Type = type,
+                    Currency = "BRL",
+                    Source = "MARKET_API",
+                    ManualPrice = price,
+                    LastQuoteAt = quotedAt,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                InvestmentAsset? created = await assetRepository.CreateAsync(asset);
+
+                if (quote != null && quote.Price > 0)
+                {
+                    var filter = Builders<PriceQuote>.Filter.Eq(x => x.Symbol, cleanSymbol);
+                    var update = Builders<PriceQuote>.Update
+                        .Set(x => x.Price, quote.Price)
+                        .Set(x => x.QuotedAt, quote.QuotedAt)
+                        .Set(x => x.FetchedAt, DateTime.UtcNow)
+                        .Set(x => x.Provider, "brapi")
+                        .SetOnInsert(x => x.Symbol, cleanSymbol);
+
+                    await context.PriceQuotes.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
+                }
+
+                return new(new MarketAssetCreateResultDto
+                {
+                    AlreadyExisted = false,
+                    Asset = created,
+                    CurrentPrice = price > 0 ? price : null,
+                    LastQuoteAt = quotedAt
+                }, 201, "Ativo de mercado criado com sucesso");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao criar ativo de mercado: {ex.Message}");
             }
         }
 
@@ -347,6 +481,12 @@ namespace api_finances.src.Services
                 List<Bank> banks = await context.Banks.Find(b => b.CreatedBy == userId && !b.Deleted).ToListAsync();
                 Dictionary<string, Bank> bankMap = banks.ToDictionary(b => b.Id, b => b);
 
+                List<PriceQuote> quotes = await context.PriceQuotes.Find(_ => true).ToListAsync();
+                Dictionary<string, PriceQuote> quoteMap = quotes
+                    .Where(q => !string.IsNullOrEmpty(q.Symbol))
+                    .GroupBy(q => q.Symbol.ToUpperInvariant())
+                    .ToDictionary(g => g.Key, g => g.First());
+
                 List<InvestmentPositionDTO> positions = [];
                 decimal portfolioInvested = 0;
                 decimal portfolioCurrentValue = 0;
@@ -404,7 +544,15 @@ namespace api_finances.src.Services
                     bool hasQuote = false;
                     bool isEstimated = false;
 
-                    if (asset.ManualPrice > 0)
+                    string symbolKey = (!string.IsNullOrEmpty(asset.ExternalSymbol) ? asset.ExternalSymbol : asset.Ticker).Trim().ToUpperInvariant();
+                    quoteMap.TryGetValue(symbolKey, out var pq);
+
+                    if (pq != null && pq.Price > 0)
+                    {
+                        lastPrice = pq.Price;
+                        hasQuote = true;
+                    }
+                    else if (asset.ManualPrice > 0)
                     {
                         lastPrice = asset.ManualPrice;
                         hasQuote = true;
