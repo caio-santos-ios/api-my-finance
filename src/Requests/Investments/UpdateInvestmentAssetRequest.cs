@@ -4,7 +4,6 @@ namespace api_finances.src.Requests
 {
     public class UpdateInvestmentAssetRequest : Request
     {
-        [Required(ErrorMessage = "O id é obrigatório.")]
         public string Id { get; set; } = string.Empty;
 
         public string Ticker { get; set; } = string.Empty;

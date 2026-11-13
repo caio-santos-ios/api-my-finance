@@ -4,7 +4,6 @@ namespace api_finances.src.Requests
 {
     public class UpdateInvestmentTransactionRequest : Request
     {
-        [Required(ErrorMessage = "O id é obrigatório.")]
         public string Id { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "O ativo de investimento é obrigatório.")]
