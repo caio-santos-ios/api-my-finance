@@ -15,6 +15,9 @@ public class DebtPayment : ModelBase
     [BsonElement("date")]
     public DateTime Date { get; set; } = DateTime.UtcNow;
 
+    [BsonIgnore]
+    public DateTime PaymentDate => Date;
+
     [BsonElement("type")]
     public string Type { get; set; } = "installment";
 
@@ -29,6 +32,9 @@ public class DebtPayment : ModelBase
 
     [BsonElement("newRemainingAmount")]
     public decimal NewRemainingAmount { get; set; }
+
+    [BsonIgnore]
+    public decimal RemainingAmountAfter => NewRemainingAmount;
 
     [BsonElement("installmentsCount")]
     public int InstallmentsCount { get; set; } = 1;
