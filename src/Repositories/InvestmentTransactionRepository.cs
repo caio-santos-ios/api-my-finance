@@ -48,6 +48,23 @@ namespace api_finances.src.Repository
                 .ToListAsync();
         }
 
+        public async Task<List<string>> GetExistingImportHashesAsync(string userId, IEnumerable<string> hashes)
+        {
+            var hashList = hashes?.Where(h => !string.IsNullOrEmpty(h)).Distinct().ToList() ?? [];
+            if (hashList.Count == 0) return [];
+
+            var filter = Builders<InvestmentTransaction>.Filter.Eq(x => x.UserId, userId)
+                       & Builders<InvestmentTransaction>.Filter.Eq(x => x.Deleted, false)
+                       & Builders<InvestmentTransaction>.Filter.In(x => x.ImportHash, hashList);
+
+            var existing = await context.InvestmentTransactions
+                .Find(filter)
+                .Project(x => x.ImportHash)
+                .ToListAsync();
+
+            return existing.Where(h => !string.IsNullOrEmpty(h)).Select(h => h!).ToList();
+        }
+
         public async Task<InvestmentTransaction?> CreateAsync(InvestmentTransaction transaction)
         {
             transaction.CreatedAt = DateTime.UtcNow;

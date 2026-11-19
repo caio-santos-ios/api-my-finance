@@ -39,6 +39,9 @@ namespace api_finances.src.Models
         [BsonElement("notes")]
         public string Notes { get; set; } = string.Empty;
 
+        [BsonElement("importHash")]
+        public string? ImportHash { get; set; }
+
         [BsonElement("createOperation")]
         public bool CreateOperation { get; set; } = false;
 

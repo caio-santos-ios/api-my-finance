@@ -21,6 +21,9 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<InvestmentTransaction?>> UpdateTransactionAsync(string userId, UpdateInvestmentTransactionRequest request);
         Task<ResponseApi<bool>> DeleteTransactionAsync(string userId, string id);
 
+        Task<ResponseApi<B3PreviewResponseDto>> PreviewB3ImportAsync(string userId, IFormFile file);
+        Task<ResponseApi<B3ConfirmImportResponseDto>> ConfirmB3ImportAsync(string userId, B3ConfirmImportRequest request);
+
         Task<ResponseApi<PortfolioResponse>> GetPortfolioAsync(string userId);
     }
 }

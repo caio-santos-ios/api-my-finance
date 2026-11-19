@@ -1,9 +1,13 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using api_finances.src.Infraestructure;
 using api_finances.src.Interfaces;
 using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests;
 using api_finances.src.Shared.DTOs;
+using ClosedXML.Excel;
 using MongoDB.Driver;
 
 namespace api_finances.src.Services
@@ -687,6 +691,672 @@ namespace api_finances.src.Services
                 }
             }
             catch { }
+        }
+
+        public async Task<ResponseApi<B3PreviewResponseDto>> PreviewB3ImportAsync(string userId, IFormFile file)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                    return new(null, 400, "Arquivo inválido ou vazio.");
+
+                string ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (ext != ".csv" && ext != ".xlsx" && ext != ".xls")
+                    return new(null, 400, "Formato de arquivo não suportado. Envie uma planilha da B3 em formato .csv ou .xlsx.");
+
+                var rawRows = await ParseB3FileAsync(file, ext);
+                if (rawRows.Count == 0)
+                    return new(null, 400, "Nenhuma linha válida de movimentação foi encontrada no arquivo da B3.");
+
+                var hashes = rawRows.Select(r => r.ImportHash).Distinct().ToList();
+                var existingHashes = await transactionRepository.GetExistingImportHashesAsync(userId, hashes);
+                var existingSet = new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase);
+
+                var seenInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                List<B3ImportRowDto> rows = [];
+
+                foreach (var raw in rawRows)
+                {
+                    bool isDuplicate = false;
+                    string? warningMsg = raw.WarningMessage;
+
+                    if (existingSet.Contains(raw.ImportHash))
+                    {
+                        isDuplicate = true;
+                        warningMsg = "Movimentação já cadastrada no sistema.";
+                    }
+                    else if (!seenInFile.Add(raw.ImportHash))
+                    {
+                        isDuplicate = true;
+                        warningMsg = "Movimentação duplicada dentro da própria planilha.";
+                    }
+
+                    rows.Add(new B3ImportRowDto
+                    {
+                        Ticker = raw.Ticker,
+                        Name = raw.Name,
+                        Type = raw.Type,
+                        Kind = raw.Kind,
+                        Date = raw.Date,
+                        BrokerName = raw.BrokerName,
+                        Quantity = raw.Quantity,
+                        UnitPrice = raw.UnitPrice,
+                        TotalValue = raw.TotalValue,
+                        ImportHash = raw.ImportHash,
+                        IsDuplicate = isDuplicate,
+                        HasWarning = raw.HasWarning,
+                        WarningMessage = warningMsg
+                    });
+                }
+
+                int total = rows.Count;
+                int duplicates = rows.Count(r => r.IsDuplicate);
+                int warnings = rows.Count(r => r.HasWarning && !r.IsDuplicate);
+
+                var result = new B3PreviewResponseDto
+                {
+                    TotalRows = total,
+                    NewRows = total - duplicates,
+                    DuplicateRows = duplicates,
+                    WarningRows = warnings,
+                    Rows = rows
+                };
+
+                return new(result, 200, "Planilha processada com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao processar planilha da B3: {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<B3ConfirmImportResponseDto>> ConfirmB3ImportAsync(string userId, B3ConfirmImportRequest request)
+        {
+            try
+            {
+                if (request?.Items == null || request.Items.Count == 0)
+                    return new(null, 400, "Nenhuma movimentação selecionada para importação.");
+
+                var distinctItems = request.Items
+                    .GroupBy(x => x.ImportHash, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
+                var hashes = distinctItems.Select(x => x.ImportHash).ToList();
+                var existingHashes = await transactionRepository.GetExistingImportHashesAsync(userId, hashes);
+                var existingSet = new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase);
+
+                var itemsToImport = distinctItems.Where(x => !existingSet.Contains(x.ImportHash)).ToList();
+                int skipped = request.Items.Count - itemsToImport.Count;
+
+                if (itemsToImport.Count == 0)
+                {
+                    return new(new B3ConfirmImportResponseDto
+                    {
+                        ImportedCount = 0,
+                        SkippedCount = skipped,
+                        CreatedAssetTickers = []
+                    }, 200, "Todas as movimentações selecionadas já haviam sido importadas anteriormente.");
+                }
+
+                List<InvestmentAsset> userAssets = await assetRepository.GetAllByUserAsync(userId);
+                var assetMap = new Dictionary<string, InvestmentAsset>(StringComparer.OrdinalIgnoreCase);
+                foreach (var a in userAssets)
+                {
+                    if (!string.IsNullOrWhiteSpace(a.Ticker)) assetMap[a.Ticker] = a;
+                    if (!string.IsNullOrWhiteSpace(a.ExternalSymbol)) assetMap[a.ExternalSymbol] = a;
+                }
+
+                List<Bank> userBanks = await context.Banks.Find(b => b.CreatedBy == userId && !b.Deleted).ToListAsync();
+                List<string> createdTickers = [];
+                List<InvestmentTransaction> transactions = [];
+
+                foreach (var item in itemsToImport)
+                {
+                    string cleanTicker = item.Ticker.Trim().ToUpperInvariant();
+
+                    if (!assetMap.TryGetValue(cleanTicker, out InvestmentAsset? asset))
+                    {
+                        asset = new InvestmentAsset
+                        {
+                            UserId = userId,
+                            CreatedBy = userId,
+                            Ticker = cleanTicker,
+                            ExternalSymbol = cleanTicker,
+                            Name = !string.IsNullOrWhiteSpace(item.Name) ? item.Name.Trim() : cleanTicker,
+                            Type = !string.IsNullOrWhiteSpace(item.Type) ? item.Type.Trim().ToUpperInvariant() : InferAssetType(cleanTicker),
+                            Currency = "BRL",
+                            Source = "MARKET_API",
+                            ManualPrice = item.UnitPrice,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        };
+
+                        await assetRepository.CreateAsync(asset);
+                        assetMap[cleanTicker] = asset;
+                        createdTickers.Add(cleanTicker);
+                    }
+
+                    Bank broker = await ResolveBrokerAsync(userId, userBanks, item.BrokerName);
+
+                    decimal amount = item.TotalValue > 0
+                        ? item.TotalValue
+                        : Math.Round(item.Quantity * item.UnitPrice, 2);
+
+                    transactions.Add(new InvestmentTransaction
+                    {
+                        UserId = userId,
+                        CreatedBy = userId,
+                        InvestmentAssetId = asset.Id,
+                        BrokerId = broker.Id,
+                        Kind = item.Kind.Trim().ToUpperInvariant(),
+                        Date = DateTime.SpecifyKind(item.Date.Date, DateTimeKind.Utc),
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        Amount = amount,
+                        Fees = 0,
+                        Notes = "Importado da B3",
+                        ImportHash = item.ImportHash,
+                        CreateOperation = false,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    });
+                }
+
+                if (transactions.Count > 0)
+                {
+                    await context.InvestmentTransactions.InsertManyAsync(transactions);
+                }
+
+                var response = new B3ConfirmImportResponseDto
+                {
+                    ImportedCount = transactions.Count,
+                    SkippedCount = skipped,
+                    CreatedAssetTickers = createdTickers.Distinct().ToList()
+                };
+
+                return new(response, 201, $"{transactions.Count} movimentação(ões) importada(s) com sucesso!");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao confirmar importação da B3: {ex.Message}");
+            }
+        }
+
+        private async Task<Bank> ResolveBrokerAsync(string userId, List<Bank> userBanks, string brokerName)
+        {
+            var match = FindOrMatchBroker(userBanks, brokerName);
+            if (match != null) return match;
+
+            string cleanName = !string.IsNullOrWhiteSpace(brokerName) ? brokerName.Trim() : "B3";
+            Bank newBank = new()
+            {
+                Name = cleanName,
+                Code = "",
+                CreatedBy = userId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                Deleted = false
+            };
+
+            await context.Banks.InsertOneAsync(newBank);
+            userBanks.Add(newBank);
+            return newBank;
+        }
+
+        private static Bank? FindOrMatchBroker(List<Bank> userBanks, string brokerName)
+        {
+            if (string.IsNullOrWhiteSpace(brokerName)) return userBanks.FirstOrDefault();
+
+            string clean = brokerName.Trim();
+
+            var exact = userBanks.FirstOrDefault(b => b.Name.Trim().Equals(clean, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+
+            var contains = userBanks.FirstOrDefault(b =>
+                clean.Contains(b.Name.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                b.Name.Trim().Contains(clean, StringComparison.OrdinalIgnoreCase));
+            if (contains != null) return contains;
+
+            var keywords = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "NU", ["NU INVEST", "NUBANK", "EASYNVEST", "NU"] },
+                { "XP", ["XP INVESTIMENTOS", "XP"] },
+                { "CLEAR", ["CLEAR"] },
+                { "RICO", ["RICO"] },
+                { "INTER", ["INTER", "BANCO INTER"] },
+                { "BTG", ["BTG", "BTG PACTUAL"] },
+                { "ITAU", ["ITAU", "ITAÚ"] },
+                { "BRADESCO", ["BRADESCO", "AGORA", "ÁGORA"] },
+                { "SANTANDER", ["SANTANDER"] },
+                { "GENIAL", ["GENIAL"] },
+                { "TORO", ["TORO"] },
+                { "C6", ["C6", "C6 BANK"] }
+            };
+
+            foreach (var (_, words) in keywords)
+            {
+                if (words.Any(w => clean.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var match = userBanks.FirstOrDefault(b =>
+                        words.Any(w => b.Name.Contains(w, StringComparison.OrdinalIgnoreCase)));
+                    if (match != null) return match;
+                }
+            }
+
+            return null;
+        }
+
+        private static async Task<List<B3RawParsedItem>> ParseB3FileAsync(IFormFile file, string ext)
+        {
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            stream.Position = 0;
+
+            if (ext == ".csv")
+            {
+                byte[] bytes = stream.ToArray();
+                string content;
+                try
+                {
+                    var utf8Strict = new UTF8Encoding(false, true);
+                    content = utf8Strict.GetString(bytes);
+                }
+                catch
+                {
+                    content = Encoding.GetEncoding("ISO-8859-1").GetString(bytes);
+                }
+
+                return ParseCsvContent(content);
+            }
+            else
+            {
+                return ParseExcelStream(stream);
+            }
+        }
+
+        private static List<B3RawParsedItem> ParseCsvContent(string content)
+        {
+            List<B3RawParsedItem> list = [];
+            var lines = content.Split(["\r\n", "\r", "\n"], StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length < 2) return list;
+
+            string headerLine = lines[0];
+            char delimiter = headerLine.Count(c => c == ';') > headerLine.Count(c => c == ',') ? ';' : ',';
+
+            var headers = ParseCsvLine(headerLine, delimiter);
+            var colMap = MapHeaderColumns(headers);
+
+            if (!colMap.ContainsKey("produto") || !colMap.ContainsKey("data"))
+            {
+                for (int i = 1; i < Math.Min(lines.Length, 5); i++)
+                {
+                    var tryHeaders = ParseCsvLine(lines[i], delimiter);
+                    var tryMap = MapHeaderColumns(tryHeaders);
+                    if (tryMap.ContainsKey("produto") && tryMap.ContainsKey("data"))
+                    {
+                        colMap = tryMap;
+                        lines = lines.Skip(i).ToArray();
+                        break;
+                    }
+                }
+            }
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var fields = ParseCsvLine(lines[i], delimiter);
+                if (fields.Count == 0 || fields.All(string.IsNullOrWhiteSpace)) continue;
+
+                var item = ExtractItemFromRow(fields, colMap);
+                if (item != null) list.Add(item);
+            }
+
+            return list;
+        }
+
+        private static List<B3RawParsedItem> ParseExcelStream(Stream stream)
+        {
+            List<B3RawParsedItem> list = [];
+            using var workbook = new XLWorkbook(stream);
+            var worksheet = workbook.Worksheets.FirstOrDefault();
+            if (worksheet == null) return list;
+
+            var firstRow = worksheet.FirstRowUsed();
+            var lastRow = worksheet.LastRowUsed();
+            if (firstRow == null || lastRow == null) return list;
+
+            int headerRowNum = -1;
+            Dictionary<string, int> colMap = [];
+
+            for (int r = firstRow.RowNumber(); r <= Math.Min(firstRow.RowNumber() + 10, lastRow.RowNumber()); r++)
+            {
+                var row = worksheet.Row(r);
+                List<string> rowHeaders = [];
+                for (int c = 1; c <= row.LastCellUsed()?.Address.ColumnNumber; c++)
+                {
+                    rowHeaders.Add(row.Cell(c).GetString().Trim());
+                }
+
+                var map = MapHeaderColumns(rowHeaders);
+                if (map.ContainsKey("produto") && map.ContainsKey("data"))
+                {
+                    headerRowNum = r;
+                    colMap = map;
+                    break;
+                }
+            }
+
+            if (headerRowNum == -1) return list;
+
+            for (int r = headerRowNum + 1; r <= lastRow.RowNumber(); r++)
+            {
+                var row = worksheet.Row(r);
+                if (row.IsEmpty()) continue;
+
+                List<string> fields = [];
+                for (int c = 1; c <= Math.Max(10, colMap.Values.DefaultIfEmpty(0).Max() + 1); c++)
+                {
+                    var cell = row.Cell(c);
+                    if (cell.DataType == XLDataType.DateTime)
+                    {
+                        fields.Add(cell.GetDateTime().ToString("dd/MM/yyyy"));
+                    }
+                    else
+                    {
+                        fields.Add(cell.GetString().Trim());
+                    }
+                }
+
+                var item = ExtractItemFromRow(fields, colMap);
+                if (item != null) list.Add(item);
+            }
+
+            return list;
+        }
+
+        private static Dictionary<string, int> MapHeaderColumns(List<string> headers)
+        {
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < headers.Count; i++)
+            {
+                string norm = NormalizeText(headers[i]);
+
+                if (norm.Contains("entrada") || norm.Contains("saida") || norm.Contains("direcao") || norm.Contains("tipo"))
+                {
+                    if (!map.ContainsKey("tipo")) map["tipo"] = i;
+                }
+                else if (norm.Contains("data"))
+                {
+                    if (!map.ContainsKey("data")) map["data"] = i;
+                }
+                else if (norm.Contains("movimentacao") || norm.Contains("operacao"))
+                {
+                    if (!map.ContainsKey("movimentacao")) map["movimentacao"] = i;
+                }
+                else if (norm.Contains("produto") || norm.Contains("ativo") || norm.Contains("codigo") || norm.Contains("ticker"))
+                {
+                    if (!map.ContainsKey("produto")) map["produto"] = i;
+                }
+                else if (norm.Contains("instituicao") || norm.Contains("corretora") || norm.Contains("agente"))
+                {
+                    if (!map.ContainsKey("instituicao")) map["instituicao"] = i;
+                }
+                else if (norm.Contains("quantidade") || norm.Contains("qtd"))
+                {
+                    if (!map.ContainsKey("quantidade")) map["quantidade"] = i;
+                }
+                else if (norm.Contains("preco unitario") || norm.Contains("preco"))
+                {
+                    if (!map.ContainsKey("preco")) map["preco"] = i;
+                }
+                else if (norm.Contains("valor da operacao") || norm.Contains("valor operacao") || norm.Contains("valor total") || norm.Contains("total"))
+                {
+                    if (!map.ContainsKey("total")) map["total"] = i;
+                }
+            }
+
+            return map;
+        }
+
+        private static B3RawParsedItem? ExtractItemFromRow(List<string> fields, Dictionary<string, int> colMap)
+        {
+            string GetField(string key)
+            {
+                if (colMap.TryGetValue(key, out int idx) && idx >= 0 && idx < fields.Count)
+                    return fields[idx].Trim();
+                return "";
+            }
+
+            string rawTipo = GetField("tipo");
+            string rawData = GetField("data");
+            string rawMov = GetField("movimentacao");
+            string rawProduto = GetField("produto");
+            string rawInstituicao = GetField("instituicao");
+            string rawQtd = GetField("quantidade");
+            string rawPreco = GetField("preco");
+            string rawTotal = GetField("total");
+
+            if (string.IsNullOrWhiteSpace(rawProduto) || string.IsNullOrWhiteSpace(rawData))
+                return null;
+
+            string normTipo = NormalizeText(rawTipo);
+            string normMov = NormalizeText(rawMov);
+            string kind = "BUY";
+
+            if (normTipo.Contains("debito") || normTipo.Contains("venda") || normTipo.Contains("saida") || normMov.Contains("venda"))
+            {
+                kind = "SELL";
+            }
+            else if (normTipo.Contains("credito") || normTipo.Contains("compra") || normTipo.Contains("entrada") || normMov.Contains("compra") || normMov.Contains("liquidacao"))
+            {
+                kind = "BUY";
+            }
+            else
+            {
+                kind = "BUY";
+            }
+
+            DateTime date;
+            string[] dateFormats = ["dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd", "dd-MM-yyyy", "dd/MM/yyyy HH:mm:ss", "yyyy-MM-ddTHH:mm:ss"];
+            if (!DateTime.TryParseExact(rawData, dateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date) &&
+                !DateTime.TryParse(rawData, new CultureInfo("pt-BR"), DateTimeStyles.None, out date))
+            {
+                return null;
+            }
+            date = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
+
+            string[] prodParts = rawProduto.Split(['-'], 2);
+            string ticker = prodParts[0].Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(ticker)) return null;
+
+            if (ticker.Contains(' '))
+            {
+                ticker = ticker.Split([' '], StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+            }
+
+            string name = prodParts.Length > 1 ? prodParts[1].Trim() : ticker;
+            if (string.IsNullOrWhiteSpace(name)) name = ticker;
+
+            string type = InferAssetType(ticker);
+            string brokerName = !string.IsNullOrWhiteSpace(rawInstituicao) ? rawInstituicao.Trim() : "B3";
+
+            decimal quantity = ParseDecimal(rawQtd);
+            if (quantity <= 0) return null;
+
+            bool hasWarning = false;
+            string? warningMessage = null;
+
+            decimal unitPrice = 0;
+            if (rawPreco == "-" || rawPreco == "--" || string.IsNullOrWhiteSpace(rawPreco))
+            {
+                unitPrice = 0;
+                hasWarning = true;
+                warningMessage = "Preço unitário não informado na planilha da B3 (R$ 0,00).";
+            }
+            else
+            {
+                unitPrice = ParseDecimal(rawPreco);
+                if (unitPrice <= 0)
+                {
+                    hasWarning = true;
+                    warningMessage = "Preço unitário zerado.";
+                }
+            }
+
+            decimal totalValue = 0;
+            if (rawTotal == "-" || rawTotal == "--" || string.IsNullOrWhiteSpace(rawTotal))
+            {
+                totalValue = Math.Round(quantity * unitPrice, 2);
+            }
+            else
+            {
+                totalValue = ParseDecimal(rawTotal);
+                if (totalValue <= 0 && quantity > 0 && unitPrice > 0)
+                {
+                    totalValue = Math.Round(quantity * unitPrice, 2);
+                }
+            }
+
+            string qtyStr = quantity.ToString("0.########", CultureInfo.InvariantCulture);
+            string priceStr = unitPrice.ToString("0.########", CultureInfo.InvariantCulture);
+            string rawHashInput = $"{kind}|{date:yyyy-MM-dd}|{ticker}|{brokerName.ToUpperInvariant()}|{qtyStr}|{priceStr}";
+            string importHash = ComputeSha256(rawHashInput);
+
+            return new B3RawParsedItem
+            {
+                Ticker = ticker,
+                Name = name,
+                Type = type,
+                Kind = kind,
+                Date = date,
+                BrokerName = brokerName,
+                Quantity = quantity,
+                UnitPrice = unitPrice,
+                TotalValue = totalValue,
+                ImportHash = importHash,
+                HasWarning = hasWarning,
+                WarningMessage = warningMessage
+            };
+        }
+
+        private static List<string> ParseCsvLine(string line, char delimiter)
+        {
+            List<string> fields = [];
+            bool inQuotes = false;
+            StringBuilder current = new();
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        current.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = !inQuotes;
+                    }
+                }
+                else if (c == delimiter && !inQuotes)
+                {
+                    fields.Add(current.ToString().Trim());
+                    current.Clear();
+                }
+                else
+                {
+                    current.Append(c);
+                }
+            }
+            fields.Add(current.ToString().Trim());
+            return fields;
+        }
+
+        private static decimal ParseDecimal(string? val)
+        {
+            if (string.IsNullOrWhiteSpace(val)) return 0;
+            val = val.Trim();
+            if (val == "-" || val == "--") return 0;
+
+            val = val.Replace("R$", "").Trim();
+
+            if (val.Contains('.') && val.Contains(','))
+            {
+                if (val.LastIndexOf(',') > val.LastIndexOf('.'))
+                    val = val.Replace(".", "").Replace(",", ".");
+                else
+                    val = val.Replace(",", "");
+            }
+            else if (val.Contains(','))
+            {
+                val = val.Replace(',', '.');
+            }
+
+            if (decimal.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal result))
+                return result;
+
+            return 0;
+        }
+
+        private static string ComputeSha256(string input)
+        {
+            byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+            return Convert.ToHexString(bytes).ToUpperInvariant();
+        }
+
+        private static string InferAssetType(string ticker)
+        {
+            if (string.IsNullOrWhiteSpace(ticker)) return "STOCK";
+            ticker = ticker.Trim().ToUpperInvariant();
+
+            if (ticker.EndsWith("34") || ticker.EndsWith("35"))
+                return "BDR";
+
+            if (ticker.EndsWith("11"))
+            {
+                string[] knownEtfs = ["BOVA11", "SMAL11", "IVVB11", "HASH11", "BBOV11", "XBOV11", "SPXI11", "ECOO11", "GOLD11", "DIVO11", "FIND11", "GOVE11", "MATB11", "ISUS11", "PIBB11", "BRAX11", "GENB11", "ACWI11", "NASD11", "TECK11", "DNAI11", "MILL11", "SHOT11", "YDRO11", "URET11", "ALUG11", "WRLD11", "BBSD11", "ESGE11"];
+                if (knownEtfs.Contains(ticker))
+                    return "ETF";
+
+                return "FII";
+            }
+
+            if (ticker.EndsWith("3") || ticker.EndsWith("4") || ticker.EndsWith("5") || ticker.EndsWith("6"))
+                return "STOCK";
+
+            return "STOCK";
+        }
+
+        private static string NormalizeText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+            string normalized = text.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+            StringBuilder sb = new();
+            foreach (char c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private class B3RawParsedItem
+        {
+            public string Ticker { get; set; } = string.Empty;
+            public string Name { get; set; } = string.Empty;
+            public string Type { get; set; } = "STOCK";
+            public string Kind { get; set; } = "BUY";
+            public DateTime Date { get; set; }
+            public string BrokerName { get; set; } = string.Empty;
+            public decimal Quantity { get; set; }
+            public decimal UnitPrice { get; set; }
+            public decimal TotalValue { get; set; }
+            public string ImportHash { get; set; } = string.Empty;
+            public bool HasWarning { get; set; }
+            public string? WarningMessage { get; set; }
         }
     }
 }

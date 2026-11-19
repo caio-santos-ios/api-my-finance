@@ -3,6 +3,7 @@ using api_finances.src.Interfaces;
 using api_finances.src.Models;
 using api_finances.src.Models.Base;
 using api_finances.src.Requests;
+using api_finances.src.Shared.DTOs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -104,6 +105,25 @@ namespace api_finances.src.Controllers
         public async Task<IActionResult> DeleteTransaction(string id)
         {
             ResponseApi<bool> response = await service.DeleteTransactionAsync(UserId, id);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
+        [HttpPost("import/b3/preview")]
+        public async Task<IActionResult> PreviewB3Import(IFormFile? file)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest("Nenhum arquivo enviado.");
+
+            var response = await service.PreviewB3ImportAsync(UserId, file);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
+        [HttpPost("import/b3/confirm")]
+        public async Task<IActionResult> ConfirmB3Import([FromBody] B3ConfirmImportRequest request)
+        {
+            var response = await service.ConfirmB3ImportAsync(UserId, request);
             return StatusCode(response.StatusCode, response.Result);
         }
 
