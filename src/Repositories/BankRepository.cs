@@ -47,6 +47,34 @@ namespace api_finances.src.Repository
             List<BsonDocument> results = await context.Banks.Aggregate<BsonDocument>(countPipeline).ToListAsync();
             return results.Count;
         }
+        public async Task RestoreOrphanedBanksAsync()
+        {
+            try
+            {
+                var filter = Builders<Bank>.Filter.Where(x => (x.CreatedBy == "" || x.CreatedBy == null) && !x.Deleted);
+                var orphaned = await context.Banks.Find(filter).ToListAsync();
+                if (orphaned.Count == 0) return;
+
+                foreach (var b in orphaned)
+                {
+                    string? owner = !string.IsNullOrEmpty(b.UpdatedBy) ? b.UpdatedBy : null;
+                    if (string.IsNullOrEmpty(owner))
+                    {
+                        var op = await context.Operations.Find(x => x.BankId == b.Id && !string.IsNullOrEmpty(x.CreatedBy)).FirstOrDefaultAsync();
+                        if (op != null) owner = op.CreatedBy;
+                    }
+                    if (!string.IsNullOrEmpty(owner))
+                    {
+                        b.CreatedBy = owner;
+                        await context.Banks.ReplaceOneAsync(x => x.Id == b.Id, b);
+                    }
+                }
+            }
+            catch
+            {
+                // Silently ignore to avoid breaking list requests
+            }
+        }
         #endregion
         #region CREATE
         public async Task<Bank?> CreateAsync(Bank entity)

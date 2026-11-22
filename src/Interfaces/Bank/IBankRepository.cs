@@ -13,6 +13,7 @@ namespace api_finances.src.Interfaces
         Task<Bank?> GetFirstAsync();
         Task<long> GetNextCode(string userId);
         Task<int> GetCountDocumentsAsync(BsonDocument[] pipeline);
+        Task RestoreOrphanedBanksAsync();
         Task<Bank?> CreateAsync(Bank entity);
         Task<Bank?> UpdateAsync(Bank entity);
         Task<Bank> DeleteAsync(Bank entity);

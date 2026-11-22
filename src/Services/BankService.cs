@@ -18,6 +18,7 @@ namespace api_finances.src.Services
         {
             try
             {
+                await repository.RestoreOrphanedBanksAsync();
                 PaginationUtil<Bank> pagination = new(request.QueryParams);
                 BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
@@ -105,6 +106,7 @@ namespace api_finances.src.Services
         {
             try
             {
+                await repository.RestoreOrphanedBanksAsync();
                 PaginationUtil<Bank> pagination = new(request.QueryParams);
                 BsonDocument[] pipeline = [
                     new("$match", pagination.PipelineFilter),
@@ -240,10 +242,16 @@ namespace api_finances.src.Services
                 Bank? existed = await repository.GetByIdAsync(request.Id);
                 if (existed is null) return new(null, 404, "Falha ao atualizar");
 
-                Bank banks = ObjectMapper.Map<UpdateBankRequest, Bank>(request);
-                banks.UpdatedAt = DateTime.UtcNow;
+                existed.Name = request.Name;
+                existed.Code = request.Code;
+                existed.UpdatedAt = DateTime.UtcNow;
+                existed.UpdatedBy = request.UpdatedBy;
+                if (string.IsNullOrEmpty(existed.CreatedBy) && !string.IsNullOrEmpty(request.UpdatedBy))
+                {
+                    existed.CreatedBy = request.UpdatedBy;
+                }
 
-                Bank? response = await repository.UpdateAsync(banks);
+                Bank? response = await repository.UpdateAsync(existed);
                 if (response is null) return new(null, 400, "Falha ao atualizar");
 
                 return new(response, 200, "Atualizado com sucesso");

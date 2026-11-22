@@ -63,9 +63,14 @@ namespace api_finances.src.Controllers
 
         [Authorize]
         [HttpPut]
-        public async Task<IActionResult> Update([FromBody] UpdateBankRequest task)
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update([FromBody] UpdateBankRequest task, string? id = null)
         {
             if (task == null) return BadRequest("Dados inválidos.");
+            if (!string.IsNullOrEmpty(id) && string.IsNullOrEmpty(task.Id))
+            {
+                task.Id = id;
+            }
             task.UpdatedBy = UserId;
             ResponseApi<Bank?> response = await service.UpdateAsync(task);
             return StatusCode(response.StatusCode, response.Result);
