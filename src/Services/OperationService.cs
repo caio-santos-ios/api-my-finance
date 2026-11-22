@@ -41,11 +41,19 @@ namespace api_finances.src.Services
                                 { "then", BsonNull.Value },
                                 { "else", new BsonDocument("$toObjectId", "$bankId") }
                             })
+                        },
+                        { "destinationBankObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$destinationBankId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$destinationBankId") }
+                            })
                         }
                     }),
 
                     MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
                     MongoUtil.Lookup("banks", ["$bankObjId"], ["$_id"], "_banks", [["deleted", false]], 1),
+                    MongoUtil.Lookup("banks", ["$destinationBankObjId"], ["$_id"], "_destinationBanks", [["deleted", false]], 1),
 
                     new("$project", new BsonDocument
                     {
@@ -64,6 +72,7 @@ namespace api_finances.src.Services
                         {"payeeName", 1},
                         {"payeeDocument", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
+                        {"destinationBankName", MongoUtil.First("_destinationBanks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
                                 { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
@@ -109,11 +118,19 @@ namespace api_finances.src.Services
                                 { "then", BsonNull.Value },
                                 { "else", new BsonDocument("$toObjectId", "$bankId") }
                             })
+                        },
+                        { "destinationBankObjId", new BsonDocument("$cond", new BsonDocument
+                            {
+                                { "if", new BsonDocument("$in", new BsonArray { "$destinationBankId", new BsonArray { BsonNull.Value, "" } }) },
+                                { "then", BsonNull.Value },
+                                { "else", new BsonDocument("$toObjectId", "$destinationBankId") }
+                            })
                         }
                     }),
 
                     MongoUtil.Lookup("categories", ["$categoryObjId"], ["$_id"], "_categories", [["deleted", false]], 1),
                     MongoUtil.Lookup("banks", ["$bankObjId"], ["$_id"], "_banks", [["deleted", false]], 1),
+                    MongoUtil.Lookup("banks", ["$destinationBankObjId"], ["$_id"], "_destinationBanks", [["deleted", false]], 1),
 
                     new("$project", new BsonDocument
                     {
@@ -132,6 +149,7 @@ namespace api_finances.src.Services
                         {"payeeName", 1},
                         {"payeeDocument", 1},
                         {"bankName", MongoUtil.First("_banks.name")},
+                        {"destinationBankName", MongoUtil.First("_destinationBanks.name")},
                         {"categoryName", new BsonDocument("$cond", new BsonDocument
                             {
                                 { "if", new BsonDocument("$in", new BsonArray { "$categoryId", new BsonArray { BsonNull.Value, "" } }) },
