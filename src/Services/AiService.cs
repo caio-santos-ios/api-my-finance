@@ -13,7 +13,6 @@ namespace api_finances.src.Services
     public class AiService(
         AppDbContext context,
         IInvestmentService investmentService,
-        IConfiguration configuration,
         IHttpClientFactory httpClientFactory
     ) : IAiService
     {
@@ -21,19 +20,15 @@ namespace api_finances.src.Services
         {
             try
             {
-                string apiKey = configuration["Gemini:ApiKey"]
-                    ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
-                    ?? "";
-                string model = configuration["Gemini:Model"]
-                    ?? Environment.GetEnvironmentVariable("GEMINI_MODEL")
-                    ?? "gemini-1.5-flash";
+                string apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+                string model = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-1.5-flash";
 
                 if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "SUA_CHAVE_AQUI")
                 {
                     return new(
-                        "Olá! Sou seu assistente financeiro no **My Finances**. 💡\n\nPara começar a conversar comigo, configure sua chave da API do Google Gemini (`GEMINI_API_KEY`) no arquivo `.env` ou `appsettings.json` do backend.",
+                        "Olá! Sou seu assistente financeiro no **My Finances**. 💡\n\nPara começar a conversar comigo, configure sua chave da API do Google Gemini (`GEMINI_API_KEY`) no arquivo `.env` do backend.",
                         200,
-                        "Chave do Gemini não configurada."
+                        "Chave do Gemini não configurada no .env."
                     );
                 }
 
