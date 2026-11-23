@@ -10,6 +10,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
         Task<ResponseApi<List<dynamic>>> GetSelectAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
+        Task<ResponseApi<List<dynamic>>> GetHistoryAsync(string budgetId, string? userId = null);
         Task<ResponseApi<Budget?>> CreateAsync(CreateBudgetRequest request);
         Task<ResponseApi<Budget?>> UpdateAsync(UpdateBudgetRequest request);
         Task<ResponseApi<Budget>> DeleteAsync(DeleteRequest request);

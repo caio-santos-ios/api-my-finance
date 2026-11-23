@@ -13,6 +13,7 @@ namespace api_finances.src.Requests
         [Required(ErrorMessage = "O limite é obrigatório.")]
         [Range(0.01, double.MaxValue, ErrorMessage = "O limite deve ser maior que zero.")]
         public decimal Limit { get; set; }
+        public string Period { get; set; } = "monthly";
         public bool ReceiveAlert { get; set; } = false;
         public int AlertPercentage { get; set; } = 80;
     }

@@ -52,6 +52,14 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("{id}/history")]
+        public async Task<IActionResult> GetHistory(string id)
+        {
+            ResponseApi<List<dynamic>> response = await service.GetHistoryAsync(id, UserId);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateBudgetRequest request)
         {

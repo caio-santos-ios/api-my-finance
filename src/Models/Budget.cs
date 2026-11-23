@@ -18,6 +18,9 @@ namespace api_finances.src.Models
         [BsonElement("limit")]
         public decimal Limit { get; set; }
 
+        [BsonElement("period")]
+        public string Period { get; set; } = "monthly"; // "daily" | "weekly" | "monthly" | "yearly"
+
         [BsonElement("receiveAlert")]
         public bool ReceiveAlert { get; set; } = false;
 
