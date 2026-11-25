@@ -823,6 +823,9 @@ namespace api_finances.src.Services
 
                     if (!assetMap.TryGetValue(cleanTicker, out InvestmentAsset? asset))
                     {
+                        string assetType = !string.IsNullOrWhiteSpace(item.Type) ? item.Type.Trim().ToUpperInvariant() : InferAssetType(cleanTicker);
+                        bool isTrade = item.Kind.Equals("BUY", StringComparison.OrdinalIgnoreCase) || item.Kind.Equals("SELL", StringComparison.OrdinalIgnoreCase);
+
                         asset = new InvestmentAsset
                         {
                             UserId = userId,
@@ -830,10 +833,10 @@ namespace api_finances.src.Services
                             Ticker = cleanTicker,
                             ExternalSymbol = cleanTicker,
                             Name = !string.IsNullOrWhiteSpace(item.Name) ? item.Name.Trim() : cleanTicker,
-                            Type = !string.IsNullOrWhiteSpace(item.Type) ? item.Type.Trim().ToUpperInvariant() : InferAssetType(cleanTicker),
+                            Type = assetType,
                             Currency = "BRL",
-                            Source = "MARKET_API",
-                            ManualPrice = item.UnitPrice,
+                            Source = assetType == "FIXED_INCOME" ? "MANUAL" : "MARKET_API",
+                            ManualPrice = isTrade ? item.UnitPrice : 0,
                             ImportBatchId = batchId,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
@@ -1244,18 +1247,28 @@ namespace api_finances.src.Services
             string normMov = NormalizeText(rawMov);
             string kind = "BUY";
 
-            if (normTipo.Contains("debito") || normTipo.Contains("venda") || normTipo.Contains("saida") || normMov.Contains("venda"))
+            if (normMov.Contains("dividendo"))
+            {
+                kind = "DIVIDEND";
+            }
+            else if (normMov.Contains("juros sobre capital") || normMov.Contains("jcp"))
+            {
+                kind = "JCP";
+            }
+            else if (normMov.Contains("rendimento") || normMov.Contains("cupom") || normMov.Contains("leilao de fracao"))
+            {
+                kind = "INCOME";
+            }
+            else if (normMov.Contains("venda") || normTipo.Contains("debito") || normTipo.Contains("venda") || normTipo.Contains("saida"))
             {
                 kind = "SELL";
-            }
-            else if (normTipo.Contains("credito") || normTipo.Contains("compra") || normTipo.Contains("entrada") || normMov.Contains("compra") || normMov.Contains("liquidacao"))
-            {
-                kind = "BUY";
             }
             else
             {
                 kind = "BUY";
             }
+
+            bool isIncomeKind = kind is "DIVIDEND" or "JCP" or "INCOME";
 
             DateTime date;
             string[] dateFormats = ["dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd", "dd-MM-yyyy", "dd/MM/yyyy HH:mm:ss", "yyyy-MM-ddTHH:mm:ss"];
@@ -1266,56 +1279,81 @@ namespace api_finances.src.Services
             }
             date = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
 
-            string[] prodParts = rawProduto.Split(['-'], 2);
-            string ticker = prodParts[0].Trim().ToUpperInvariant();
-            if (string.IsNullOrWhiteSpace(ticker)) return null;
+            string ticker;
+            string name;
+            string type;
+            string normProd = NormalizeText(rawProduto);
 
-            if (ticker.Contains(' '))
+            if (!rawProduto.Contains('-') && normProd.StartsWith("tesouro"))
             {
-                ticker = ticker.Split([' '], StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+                ticker = rawProduto.Trim().ToUpperInvariant();
+                name = rawProduto.Trim();
+                type = "FIXED_INCOME";
+            }
+            else
+            {
+                string[] prodParts = rawProduto.Split(['-'], 2);
+                ticker = prodParts[0].Trim().ToUpperInvariant();
+                if (string.IsNullOrWhiteSpace(ticker)) return null;
+
+                if (ticker.Contains(' '))
+                {
+                    ticker = ticker.Split([' '], StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+                }
+
+                name = prodParts.Length > 1 ? prodParts[1].Trim() : ticker;
+                if (string.IsNullOrWhiteSpace(name)) name = ticker;
+
+                type = InferAssetType(ticker);
             }
 
-            string name = prodParts.Length > 1 ? prodParts[1].Trim() : ticker;
-            if (string.IsNullOrWhiteSpace(name)) name = ticker;
-
-            string type = InferAssetType(ticker);
             string brokerName = !string.IsNullOrWhiteSpace(rawInstituicao) ? rawInstituicao.Trim() : "B3";
 
             decimal quantity = ParseDecimal(rawQtd);
-            if (quantity <= 0) return null;
+            decimal unitPrice = (rawPreco == "-" || rawPreco == "--" || string.IsNullOrWhiteSpace(rawPreco)) ? 0 : ParseDecimal(rawPreco);
+            decimal totalValue = (rawTotal == "-" || rawTotal == "--" || string.IsNullOrWhiteSpace(rawTotal))
+                ? Math.Round(quantity * unitPrice, 2)
+                : ParseDecimal(rawTotal);
+
+            if (totalValue <= 0 && quantity > 0 && unitPrice > 0)
+            {
+                totalValue = Math.Round(quantity * unitPrice, 2);
+            }
+
+            if (isIncomeKind)
+            {
+                if (totalValue <= 0 && quantity <= 0) return null;
+                if (unitPrice <= 0 && totalValue > 0 && quantity > 0)
+                {
+                    unitPrice = Math.Round(totalValue / quantity, 4);
+                }
+            }
+            else
+            {
+                if (quantity <= 0) return null;
+            }
 
             bool hasWarning = false;
             string? warningMessage = null;
 
-            decimal unitPrice = 0;
-            if (rawPreco == "-" || rawPreco == "--" || string.IsNullOrWhiteSpace(rawPreco))
+            if (isIncomeKind)
+            {
+                if (totalValue <= 0)
+                {
+                    hasWarning = true;
+                    warningMessage = "Valor do provento zerado na planilha da B3.";
+                }
+            }
+            else if (rawPreco == "-" || rawPreco == "--" || string.IsNullOrWhiteSpace(rawPreco))
             {
                 unitPrice = 0;
                 hasWarning = true;
                 warningMessage = "Preço unitário não informado na planilha da B3 (R$ 0,00).";
             }
-            else
+            else if (unitPrice <= 0)
             {
-                unitPrice = ParseDecimal(rawPreco);
-                if (unitPrice <= 0)
-                {
-                    hasWarning = true;
-                    warningMessage = "Preço unitário zerado.";
-                }
-            }
-
-            decimal totalValue = 0;
-            if (rawTotal == "-" || rawTotal == "--" || string.IsNullOrWhiteSpace(rawTotal))
-            {
-                totalValue = Math.Round(quantity * unitPrice, 2);
-            }
-            else
-            {
-                totalValue = ParseDecimal(rawTotal);
-                if (totalValue <= 0 && quantity > 0 && unitPrice > 0)
-                {
-                    totalValue = Math.Round(quantity * unitPrice, 2);
-                }
+                hasWarning = true;
+                warningMessage = "Preço unitário zerado.";
             }
 
             string qtyStr = quantity.ToString("0.########", CultureInfo.InvariantCulture);
