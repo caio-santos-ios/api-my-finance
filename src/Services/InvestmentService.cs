@@ -541,8 +541,6 @@ namespace api_finances.src.Services
                         }
                     }
 
-                    if (currentQty <= 0 && incomeReceived <= 0) continue;
-
                     decimal totalInvested = Math.Round(currentQty * averagePrice, 2);
                     decimal lastPrice = averagePrice;
                     bool hasQuote = false;
