@@ -50,8 +50,25 @@ namespace api_finances.src.Shared.DTOs
 
     public class B3ConfirmImportResponseDto
     {
+        public string? BatchId { get; set; }
         public int ImportedCount { get; set; }
         public int SkippedCount { get; set; }
         public List<string> CreatedAssetTickers { get; set; } = [];
+    }
+
+    public class B3ImportBatchDto
+    {
+        public string BatchId { get; set; } = string.Empty;
+        public DateTime ImportedAt { get; set; }
+        public int TransactionCount { get; set; }
+        public int AssetCount { get; set; }
+        public DateTime? FirstDate { get; set; }
+        public DateTime? LastDate { get; set; }
+    }
+
+    public class B3RevertImportResponseDto
+    {
+        public int RevertedTransactions { get; set; }
+        public int RemovedAssets { get; set; }
     }
 }

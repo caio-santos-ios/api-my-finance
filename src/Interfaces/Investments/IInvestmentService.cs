@@ -23,6 +23,8 @@ namespace api_finances.src.Interfaces
 
         Task<ResponseApi<B3PreviewResponseDto>> PreviewB3ImportAsync(string userId, IFormFile file);
         Task<ResponseApi<B3ConfirmImportResponseDto>> ConfirmB3ImportAsync(string userId, B3ConfirmImportRequest request);
+        Task<ResponseApi<List<B3ImportBatchDto>>> GetB3ImportBatchesAsync(string userId);
+        Task<ResponseApi<B3RevertImportResponseDto>> RevertB3ImportAsync(string userId, string batchId);
 
         Task<ResponseApi<PortfolioResponse>> GetPortfolioAsync(string userId);
     }

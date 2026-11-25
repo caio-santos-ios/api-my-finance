@@ -128,6 +128,22 @@ namespace api_finances.src.Controllers
         }
 
         [Authorize]
+        [HttpGet("import/b3/batches")]
+        public async Task<IActionResult> GetB3ImportBatches()
+        {
+            var response = await service.GetB3ImportBatchesAsync(UserId);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
+        [HttpDelete("import/b3/batches/{batchId}")]
+        public async Task<IActionResult> RevertB3Import(string batchId)
+        {
+            var response = await service.RevertB3ImportAsync(UserId, batchId);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
+        [Authorize]
         [HttpGet("portfolio")]
         public async Task<IActionResult> GetPortfolio()
         {

@@ -42,6 +42,9 @@ namespace api_finances.src.Models
         [BsonElement("importHash")]
         public string? ImportHash { get; set; }
 
+        [BsonElement("importBatchId")]
+        public string? ImportBatchId { get; set; }
+
         [BsonElement("createOperation")]
         public bool CreateOperation { get; set; } = false;
 

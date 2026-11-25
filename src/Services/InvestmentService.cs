@@ -708,11 +708,21 @@ namespace api_finances.src.Services
                 if (rawRows.Count == 0)
                     return new(null, 400, "Nenhuma linha válida de movimentação foi encontrada no arquivo da B3.");
 
+                // Linhas idênticas na planilha são operações legítimas distintas (ex.: duas compras iguais no mesmo dia).
+                // Cada ocorrência recebe um hash próprio (1ª = hash base, n-ésima = hash(base#n)),
+                // mantendo a idempotência ao reimportar o mesmo arquivo.
+                var occurrences = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var raw in rawRows)
+                {
+                    int n = occurrences.TryGetValue(raw.ImportHash, out int c) ? c + 1 : 1;
+                    occurrences[raw.ImportHash] = n;
+                    if (n > 1) raw.ImportHash = ComputeSha256($"{raw.ImportHash}#{n}");
+                }
+
                 var hashes = rawRows.Select(r => r.ImportHash).Distinct().ToList();
                 var existingHashes = await transactionRepository.GetExistingImportHashesAsync(userId, hashes);
                 var existingSet = new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase);
 
-                var seenInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 List<B3ImportRowDto> rows = [];
 
                 foreach (var raw in rawRows)
@@ -724,11 +734,6 @@ namespace api_finances.src.Services
                     {
                         isDuplicate = true;
                         warningMsg = "Movimentação já cadastrada no sistema.";
-                    }
-                    else if (!seenInFile.Add(raw.ImportHash))
-                    {
-                        isDuplicate = true;
-                        warningMsg = "Movimentação duplicada dentro da própria planilha.";
                     }
 
                     rows.Add(new B3ImportRowDto
@@ -810,6 +815,7 @@ namespace api_finances.src.Services
                 List<Bank> userBanks = await context.Banks.Find(b => b.CreatedBy == userId && !b.Deleted).ToListAsync();
                 List<string> createdTickers = [];
                 List<InvestmentTransaction> transactions = [];
+                string batchId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
 
                 foreach (var item in itemsToImport)
                 {
@@ -828,6 +834,7 @@ namespace api_finances.src.Services
                             Currency = "BRL",
                             Source = "MARKET_API",
                             ManualPrice = item.UnitPrice,
+                            ImportBatchId = batchId,
                             CreatedAt = DateTime.UtcNow,
                             UpdatedAt = DateTime.UtcNow
                         };
@@ -857,6 +864,7 @@ namespace api_finances.src.Services
                         Fees = 0,
                         Notes = "Importado da B3",
                         ImportHash = item.ImportHash,
+                        ImportBatchId = batchId,
                         CreateOperation = false,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -870,6 +878,7 @@ namespace api_finances.src.Services
 
                 var response = new B3ConfirmImportResponseDto
                 {
+                    BatchId = batchId,
                     ImportedCount = transactions.Count,
                     SkippedCount = skipped,
                     CreatedAssetTickers = createdTickers.Distinct().ToList()
@@ -880,6 +889,97 @@ namespace api_finances.src.Services
             catch (Exception ex)
             {
                 return new(null, 500, $"Erro ao confirmar importação da B3: {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<List<B3ImportBatchDto>>> GetB3ImportBatchesAsync(string userId)
+        {
+            try
+            {
+                var txs = await context.InvestmentTransactions
+                    .Find(x => x.UserId == userId && !x.Deleted && x.ImportBatchId != null && x.ImportBatchId != "")
+                    .ToListAsync();
+
+                var assetCounts = (await context.InvestmentAssets
+                    .Find(x => x.UserId == userId && !x.Deleted && x.ImportBatchId != null && x.ImportBatchId != "")
+                    .ToListAsync())
+                    .GroupBy(a => a.ImportBatchId!)
+                    .ToDictionary(g => g.Key, g => g.Count());
+
+                var batches = txs
+                    .GroupBy(t => t.ImportBatchId!)
+                    .Select(g => new B3ImportBatchDto
+                    {
+                        BatchId = g.Key,
+                        ImportedAt = g.Min(t => t.CreatedAt),
+                        TransactionCount = g.Count(),
+                        AssetCount = assetCounts.TryGetValue(g.Key, out int ac) ? ac : 0,
+                        FirstDate = g.Min(t => t.Date),
+                        LastDate = g.Max(t => t.Date)
+                    })
+                    .OrderByDescending(b => b.ImportedAt)
+                    .ToList();
+
+                return new(batches, 200, "Importações listadas com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao listar importações: {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<B3RevertImportResponseDto>> RevertB3ImportAsync(string userId, string batchId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(batchId))
+                    return new(null, 400, "Importação inválida.");
+
+                DateTime now = DateTime.UtcNow;
+
+                var txResult = await context.InvestmentTransactions.UpdateManyAsync(
+                    x => x.UserId == userId && !x.Deleted && x.ImportBatchId == batchId,
+                    Builders<InvestmentTransaction>.Update
+                        .Set(x => x.Deleted, true)
+                        .Set(x => x.DeletedAt, now)
+                        .Set(x => x.DeletedBy, userId));
+
+                if (txResult.ModifiedCount == 0)
+                    return new(null, 404, "Importação não encontrada ou já revertida.");
+
+                // Remove os ativos criados por esta importação que não possuem mais movimentações ativas
+                var batchAssets = await context.InvestmentAssets
+                    .Find(x => x.UserId == userId && !x.Deleted && x.ImportBatchId == batchId)
+                    .ToListAsync();
+
+                int removedAssets = 0;
+                foreach (var asset in batchAssets)
+                {
+                    bool hasActive = await context.InvestmentTransactions
+                        .Find(x => x.InvestmentAssetId == asset.Id && !x.Deleted)
+                        .AnyAsync();
+                    if (hasActive) continue;
+
+                    await context.InvestmentAssets.UpdateOneAsync(
+                        x => x.Id == asset.Id,
+                        Builders<InvestmentAsset>.Update
+                            .Set(x => x.Deleted, true)
+                            .Set(x => x.DeletedAt, now)
+                            .Set(x => x.DeletedBy, userId));
+                    removedAssets++;
+                }
+
+                var result = new B3RevertImportResponseDto
+                {
+                    RevertedTransactions = (int)txResult.ModifiedCount,
+                    RemovedAssets = removedAssets
+                };
+
+                return new(result, 200, $"Importação revertida: {result.RevertedTransactions} movimentação(ões) removida(s).");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao reverter importação: {ex.Message}");
             }
         }
 

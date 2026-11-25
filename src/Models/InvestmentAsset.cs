@@ -41,5 +41,8 @@ namespace api_finances.src.Models
 
         [BsonElement("lastQuoteAt")]
         public DateTime? LastQuoteAt { get; set; }
+
+        [BsonElement("importBatchId")]
+        public string? ImportBatchId { get; set; }
     }
 }
