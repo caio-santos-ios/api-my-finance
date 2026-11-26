@@ -91,6 +91,7 @@ namespace api_finances.src.Configuration
 
             builder.Services.AddHttpClient();
             builder.Services.AddTransient<IAiService, AiService>();
+            builder.Services.AddTransient<ICreditCardService, CreditCardService>();
 
             builder.Services.AddHostedService<InstallCollectionsUserWork>();
             builder.Services.AddHostedService<RecurringOperationsWork>();

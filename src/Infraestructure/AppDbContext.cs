@@ -53,5 +53,8 @@ namespace api_finances.src.Infraestructure
         public IMongoCollection<InvestmentTransaction> InvestmentTransactions => Database.GetCollection<InvestmentTransaction>("investment_transactions");
         public IMongoCollection<TaxYearSnapshot> TaxYearSnapshots => Database.GetCollection<TaxYearSnapshot>("tax_year_snapshots");
         public IMongoCollection<PriceQuote> PriceQuotes => Database.GetCollection<PriceQuote>("price_quotes");
+        public IMongoCollection<CreditCard> CreditCards => Database.GetCollection<CreditCard>("credit_cards");
+        public IMongoCollection<CreditCardInvoice> CreditCardInvoices => Database.GetCollection<CreditCardInvoice>("credit_card_invoices");
+        public IMongoCollection<CreditCardTransaction> CreditCardTransactions => Database.GetCollection<CreditCardTransaction>("credit_card_transactions");
     }
 }
