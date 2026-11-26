@@ -24,6 +24,12 @@ public class DebtPayment : ModelBase
     [BsonElement("amount")]
     public decimal Amount { get; set; }
 
+    [BsonElement("interest")]
+    public decimal Interest { get; set; } = 0;
+
+    [BsonElement("totalAmount")]
+    public decimal TotalAmount { get; set; } = 0;
+
     [BsonElement("bankId")]
     public string? BankId { get; set; }
 

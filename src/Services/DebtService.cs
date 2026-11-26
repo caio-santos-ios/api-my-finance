@@ -253,6 +253,8 @@ namespace api_finances.src.Services
                 if (debt is null) return new(null, 404, "Dívida não encontrada.");
 
                 decimal paymentValue = request.Amount > 0 ? request.Amount : debt.InstallmentAmount;
+                decimal interestValue = request.Interest > 0 ? request.Interest : 0;
+                decimal totalPaid = paymentValue + interestValue;
                 decimal prevAmount = debt.RemainingAmount;
                 debt.RemainingAmount = Math.Max(0, debt.RemainingAmount - paymentValue);
                 debt.PaidInstallments += 1;
@@ -270,6 +272,8 @@ namespace api_finances.src.Services
                     Date = request.PaymentDate ?? DateTime.UtcNow,
                     Type = "installment",
                     Amount = paymentValue,
+                    Interest = interestValue,
+                    TotalAmount = totalPaid,
                     BankId = request.BankId,
                     PreviousRemainingAmount = prevAmount,
                     NewRemainingAmount = debt.RemainingAmount,
@@ -284,8 +288,10 @@ namespace api_finances.src.Services
                     string targetBankId = !string.IsNullOrEmpty(request.BankId) ? request.BankId : debt.BankId;
                     Operation op = new()
                     {
-                        Description = $"Pagamento parcela {debt.PaidInstallments}/{debt.TotalInstallments} - {debt.Name}",
-                        Value = paymentValue,
+                        Description = interestValue > 0
+                            ? $"Pagamento parcela {debt.PaidInstallments}/{debt.TotalInstallments} - {debt.Name} (incl. juros)"
+                            : $"Pagamento parcela {debt.PaidInstallments}/{debt.TotalInstallments} - {debt.Name}",
+                        Value = totalPaid,
                         Type = "expense",
                         BankId = targetBankId,
                         Origin = "debt",
@@ -342,12 +348,17 @@ namespace api_finances.src.Services
                 debt.UpdatedBy = request.CreatedBy;
                 await repository.UpdateAsync(debt);
 
+                decimal interestValue = request.Interest > 0 ? request.Interest : 0;
+                decimal totalPaid = request.Amount + interestValue;
+
                 DebtPayment payment = new()
                 {
                     DebtId = debtId,
                     Date = request.PaymentDate ?? DateTime.UtcNow,
                     Type = request.Type,
                     Amount = request.Amount,
+                    Interest = interestValue,
+                    TotalAmount = totalPaid,
                     BankId = request.BankId,
                     PreviousRemainingAmount = prevAmount,
                     NewRemainingAmount = newRemaining,
@@ -365,7 +376,7 @@ namespace api_finances.src.Services
                         Description = request.Type == "amortization"
                             ? $"Amortização/Abatimento - {debt.Name}"
                             : $"Pagamento parcela {debt.PaidInstallments}/{debt.TotalInstallments} - {debt.Name}",
-                        Value = request.Amount,
+                        Value = totalPaid,
                         Type = "expense",
                         BankId = targetBankId,
                         Origin = "debt",
@@ -397,6 +408,8 @@ namespace api_finances.src.Services
 
                 payment.Type = request.Type;
                 payment.Amount = request.Amount;
+                payment.Interest = request.Interest > 0 ? request.Interest : 0;
+                payment.TotalAmount = payment.Amount + payment.Interest;
                 payment.BankId = request.BankId;
                 payment.Date = request.PaymentDate ?? payment.Date;
                 payment.InstallmentsCount = request.InstallmentsCount;
