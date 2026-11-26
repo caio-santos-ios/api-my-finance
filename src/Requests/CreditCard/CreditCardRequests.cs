@@ -60,11 +60,12 @@ namespace api_finances.src.Requests.CreditCard
 
     public class PayCreditCardInvoiceRequest
     {
-        [Required(ErrorMessage = "A conta bancária de pagamento é obrigatória.")]
-        public string PaymentBankId { get; set; } = string.Empty;
+        public string? PaymentBankId { get; set; }
 
         public DateTime? PaidAt { get; set; }
 
         public decimal? Value { get; set; }
+
+        public bool CreateExpenseOperation { get; set; } = true;
     }
 }

@@ -464,12 +464,12 @@ namespace api_finances.src.Services
 
                 invoice.Status = "paid";
                 invoice.PaidAt = paidAt;
-                invoice.PaymentBankId = request.PaymentBankId;
+                invoice.PaymentBankId = string.IsNullOrWhiteSpace(request.PaymentBankId) ? null : request.PaymentBankId;
                 invoice.UpdatedAt = DateTime.UtcNow;
                 invoice.UpdatedBy = userId;
                 await context.CreditCardInvoices.ReplaceOneAsync(i => i.Id == invoice.Id, invoice);
 
-                if (amountToPay > 0 && !string.IsNullOrWhiteSpace(request.PaymentBankId))
+                if (request.CreateExpenseOperation && amountToPay > 0 && !string.IsNullOrWhiteSpace(request.PaymentBankId))
                 {
                     // Tenta localizar uma categoria de cartão de crédito do usuário (opcional)
                     var ccCategory = await context.Categories
