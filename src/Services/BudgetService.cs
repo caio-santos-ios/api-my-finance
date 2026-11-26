@@ -38,6 +38,139 @@ namespace api_finances.src.Services
             return (dailyStart, dailyEnd, weeklyStart, weeklyEnd, monthlyStart, monthlyEnd, yearlyStart, yearlyEnd);
         }
 
+        private static BsonDocument BuildCreditCardTransactionsLookup()
+        {
+            return new BsonDocument("$lookup", new BsonDocument
+            {
+                { "from", "credit_card_transactions" },
+                { "let", new BsonDocument
+                    {
+                        { "catId", "$categoryId" },
+                        { "user", "$createdBy" },
+                        { "cStart", "$cycleStartDate" },
+                        { "cEnd", "$cycleEndDate" }
+                    }
+                },
+                { "pipeline", new BsonArray
+                    {
+                        new BsonDocument("$match", new BsonDocument
+                        {
+                            { "$expr", new BsonDocument
+                                {
+                                    { "$and", new BsonArray
+                                        {
+                                            new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
+                                            new BsonDocument("$eq", new BsonArray { "$deleted", false }),
+                                            new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" })
+                                        }
+                                    }
+                                }
+                            }
+                        }),
+                        new BsonDocument("$addFields", new BsonDocument
+                        {
+                            { "invoiceObjId", new BsonDocument("$convert", new BsonDocument
+                                {
+                                    { "input", "$invoiceId" },
+                                    { "to", "objectId" },
+                                    { "onError", BsonNull.Value },
+                                    { "onNull", BsonNull.Value }
+                                })
+                            }
+                        }),
+                        new BsonDocument("$lookup", new BsonDocument
+                        {
+                            { "from", "credit_card_invoices" },
+                            { "let", new BsonDocument { { "invId", "$invoiceObjId" } } },
+                            { "pipeline", new BsonArray
+                                {
+                                    new BsonDocument("$match", new BsonDocument
+                                    {
+                                        { "$expr", new BsonDocument
+                                            {
+                                                { "$and", new BsonArray
+                                                    {
+                                                        new BsonDocument("$eq", new BsonArray { "$_id", "$$invId" }),
+                                                        new BsonDocument("$eq", new BsonArray { "$deleted", false })
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    })
+                                }
+                            },
+                            { "as", "_invoice" }
+                        }),
+                        new BsonDocument("$unwind", "$_invoice"),
+                        new BsonDocument("$addFields", new BsonDocument
+                        {
+                            { "effectiveDate", new BsonDocument("$cond", new BsonDocument
+                                {
+                                    { "if", new BsonDocument("$and", new BsonArray
+                                        {
+                                            new BsonDocument("$eq", new BsonArray { "$installmentNumber", 1 }),
+                                            new BsonDocument("$eq", new BsonArray { new BsonDocument("$year", "$date"), "$_invoice.year" }),
+                                            new BsonDocument("$eq", new BsonArray { new BsonDocument("$month", "$date"), "$_invoice.month" })
+                                        })
+                                    },
+                                    { "then", "$date" },
+                                    { "else", new BsonDocument("$dateFromParts", new BsonDocument
+                                        {
+                                            { "year", "$_invoice.year" },
+                                            { "month", "$_invoice.month" },
+                                            { "day", new BsonDocument("$min", new BsonArray { new BsonDocument("$dayOfMonth", "$date"), 28 }) },
+                                            { "hour", 12 }
+                                        })
+                                    }
+                                })
+                            }
+                        }),
+                        new BsonDocument("$match", new BsonDocument
+                        {
+                            { "$expr", new BsonDocument
+                                {
+                                    { "$and", new BsonArray
+                                        {
+                                            new BsonDocument("$gte", new BsonArray { "$effectiveDate", "$$cStart" }),
+                                            new BsonDocument("$lte", new BsonArray { "$effectiveDate", "$$cEnd" })
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                    }
+                },
+                { "as", "_ccTransactions" }
+            });
+        }
+
+        private static BsonDocument BuildSpentAddFields()
+        {
+            static BsonDocument SumMap(string inputArray, string alias) => new("$sum", new BsonDocument("$map", new BsonDocument
+            {
+                { "input", inputArray },
+                { "as", alias },
+                { "in", new BsonDocument("$convert", new BsonDocument
+                    {
+                        { "input", $"$${alias}.value" },
+                        { "to", "double" },
+                        { "onError", 0.0 },
+                        { "onNull", 0.0 }
+                    })
+                }
+            }));
+
+            return new BsonDocument("$addFields", new BsonDocument
+            {
+                { "spent", new BsonDocument("$add", new BsonArray
+                    {
+                        SumMap("$_operations", "op"),
+                        SumMap("$_ccTransactions", "cc")
+                    })
+                }
+            });
+        }
+
         #region READ
         public async Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request)
         {
@@ -110,6 +243,7 @@ namespace api_finances.src.Services
                                                 {
                                                     new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
                                                     new BsonDocument("$eq", new BsonArray { "$type", "expense" }),
+                                                    new BsonDocument("$ne", new BsonArray { "$origin", "credit_card_invoice" }),
                                                     new BsonDocument("$eq", new BsonArray { "$deleted", false }),
                                                     new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" }),
                                                     new BsonDocument("$gte", new BsonArray { "$createdAt", "$$cStart" }),
@@ -124,21 +258,9 @@ namespace api_finances.src.Services
                         { "as", "_operations" }
                     }),
 
-                    new("$addFields", new BsonDocument
-                    {
-                        {"spent", new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
-                        {
-                            {"input", "$_operations"},
-                            {"as", "op"},
-                            {"in", new BsonDocument("$convert", new BsonDocument
-                            {
-                                {"input", "$$op.value"},
-                                {"to", "double"},
-                                {"onError", 0.0},
-                                {"onNull", 0.0}
-                            })}
-                        }))},
-                    }),
+                    BuildCreditCardTransactionsLookup(),
+
+                    BuildSpentAddFields(),
 
                     new("$project", new BsonDocument
                     {
@@ -290,6 +412,7 @@ namespace api_finances.src.Services
                                                 {
                                                     new BsonDocument("$eq", new BsonArray { "$categoryId", "$$catId" }),
                                                     new BsonDocument("$eq", new BsonArray { "$type", "expense" }),
+                                                    new BsonDocument("$ne", new BsonArray { "$origin", "credit_card_invoice" }),
                                                     new BsonDocument("$eq", new BsonArray { "$deleted", false }),
                                                     new BsonDocument("$eq", new BsonArray { "$createdBy", "$$user" }),
                                                     new BsonDocument("$gte", new BsonArray { "$createdAt", "$$cStart" }),
@@ -304,21 +427,9 @@ namespace api_finances.src.Services
                         { "as", "_operations" }
                     }),
 
-                    new("$addFields", new BsonDocument
-                    {
-                        {"spent", new BsonDocument("$sum", new BsonDocument("$map", new BsonDocument
-                        {
-                            {"input", "$_operations"},
-                            {"as", "op"},
-                            {"in", new BsonDocument("$convert", new BsonDocument
-                            {
-                                {"input", "$$op.value"},
-                                {"to", "double"},
-                                {"onError", 0.0},
-                                {"onNull", 0.0}
-                            })}
-                        }))},
-                    }),
+                    BuildCreditCardTransactionsLookup(),
+
+                    BuildSpentAddFields(),
 
                     new("$project", new BsonDocument
                     {
@@ -368,13 +479,41 @@ namespace api_finances.src.Services
                 DateTime now = DateTime.UtcNow;
 
                 List<Operation> operations = await context.Operations
-                    .Find(x => !x.Deleted && x.CreatedBy == budget.CreatedBy && x.CategoryId == budget.CategoryId && x.Type == "expense")
+                    .Find(x => !x.Deleted && x.CreatedBy == budget.CreatedBy && x.CategoryId == budget.CategoryId && x.Type == "expense" && x.Origin != "credit_card_invoice")
                     .ToListAsync();
 
-                DateTime earliest = budget.CreatedAt;
-                if (operations.Count > 0)
+                List<CreditCardTransaction> ccTransactions = await context.CreditCardTransactions
+                    .Find(x => !x.Deleted && x.CreatedBy == budget.CreatedBy && x.CategoryId == budget.CategoryId)
+                    .ToListAsync();
+
+                List<(DateTime Date, decimal Value)> expenses = operations
+                    .Select(o => (o.CreatedAt, o.Value))
+                    .ToList();
+
+                if (ccTransactions.Count > 0)
                 {
-                    DateTime minOp = operations.Min(x => x.CreatedAt);
+                    List<string> invoiceIds = ccTransactions.Select(t => t.InvoiceId).Distinct().ToList();
+                    List<CreditCardInvoice> invoices = await context.CreditCardInvoices
+                        .Find(i => !i.Deleted && invoiceIds.Contains(i.Id))
+                        .ToListAsync();
+                    Dictionary<string, CreditCardInvoice> invoiceMap = invoices.ToDictionary(i => i.Id);
+
+                    foreach (CreditCardTransaction tx in ccTransactions)
+                    {
+                        if (!invoiceMap.TryGetValue(tx.InvoiceId, out CreditCardInvoice? inv)) continue;
+
+                        DateTime effectiveDate = (tx.InstallmentNumber == 1 && tx.Date.Year == inv.Year && tx.Date.Month == inv.Month)
+                            ? tx.Date
+                            : new DateTime(inv.Year, inv.Month, Math.Min(tx.Date.Day, DateTime.DaysInMonth(inv.Year, inv.Month)), 12, 0, 0, DateTimeKind.Utc);
+
+                        expenses.Add((effectiveDate, tx.Value));
+                    }
+                }
+
+                DateTime earliest = budget.CreatedAt;
+                if (expenses.Count > 0)
+                {
+                    DateTime minOp = expenses.Min(x => x.Date);
                     if (minOp < earliest) earliest = minOp;
                 }
 
@@ -397,7 +536,7 @@ namespace api_finances.src.Services
                             DateTime end = new(cursor.Year, cursor.Month, cursor.Day, 23, 59, 59, 999, DateTimeKind.Utc);
                             bool isCurrent = cursor == curDate;
 
-                            decimal spent = operations.Where(o => o.CreatedAt >= start && o.CreatedAt <= end).Sum(o => o.Value);
+                            decimal spent = expenses.Where(o => o.Date >= start && o.Date <= end).Sum(o => o.Value);
                             decimal limit = budget.Limit;
                             decimal remaining = limit - spent;
                             decimal percentage = limit > 0 ? Math.Round((spent / limit) * 100m, 1) : 0;
@@ -440,7 +579,7 @@ namespace api_finances.src.Services
                             DateTime end = new(cursorSunday.Year, cursorSunday.Month, cursorSunday.Day, 23, 59, 59, 999, DateTimeKind.Utc);
                             bool isCurrent = cursorMonday == curMonday;
 
-                            decimal spent = operations.Where(o => o.CreatedAt >= start && o.CreatedAt <= end).Sum(o => o.Value);
+                            decimal spent = expenses.Where(o => o.Date >= start && o.Date <= end).Sum(o => o.Value);
                             decimal limit = budget.Limit;
                             decimal remaining = limit - spent;
                             decimal percentage = limit > 0 ? Math.Round((spent / limit) * 100m, 1) : 0;
@@ -477,7 +616,7 @@ namespace api_finances.src.Services
                             DateTime end = new(y, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
                             bool isCurrent = y == curYear;
 
-                            decimal spent = operations.Where(o => o.CreatedAt >= start && o.CreatedAt <= end).Sum(o => o.Value);
+                            decimal spent = expenses.Where(o => o.Date >= start && o.Date <= end).Sum(o => o.Value);
                             decimal limit = budget.Limit;
                             decimal remaining = limit - spent;
                             decimal percentage = limit > 0 ? Math.Round((spent / limit) * 100m, 1) : 0;
@@ -519,7 +658,7 @@ namespace api_finances.src.Services
                             monthName = char.ToUpper(monthName[0]) + monthName[1..];
                             string label = $"{monthName}/{cursorMonth.Year}";
 
-                            decimal spent = operations.Where(o => o.CreatedAt >= start && o.CreatedAt <= end).Sum(o => o.Value);
+                            decimal spent = expenses.Where(o => o.Date >= start && o.Date <= end).Sum(o => o.Value);
                             decimal limit = budget.Limit;
                             decimal remaining = limit - spent;
                             decimal percentage = limit > 0 ? Math.Round((spent / limit) * 100m, 1) : 0;
