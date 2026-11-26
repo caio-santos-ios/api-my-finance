@@ -456,9 +456,15 @@ namespace api_finances.src.Services
                 await RecalculateInvoiceTotalAsync(invoice.Id);
                 invoice = await context.CreditCardInvoices.Find(i => i.Id == invoiceId).FirstAsync();
 
-                decimal amountToPay = request.Value.HasValue && request.Value.Value > 0
-                    ? request.Value.Value
-                    : invoice.TotalAmount;
+                if (request.Value.HasValue && request.Value.Value <= 0)
+                    return new(null, 400, "O valor do pagamento deve ser maior que zero.");
+
+                decimal amountToPay = request.Value ?? invoice.TotalAmount;
+                if (amountToPay <= 0)
+                    return new(null, 400, "Não é possível pagar uma fatura com valor zerado.");
+
+                if (request.CreateExpenseOperation && string.IsNullOrWhiteSpace(request.PaymentBankId))
+                    return new(null, 400, "Selecione a conta bancária de débito para lançar a despesa.");
 
                 DateTime paidAt = request.PaidAt ?? DateTime.UtcNow;
 
@@ -469,13 +475,18 @@ namespace api_finances.src.Services
                 invoice.UpdatedBy = userId;
                 await context.CreditCardInvoices.ReplaceOneAsync(i => i.Id == invoice.Id, invoice);
 
-                if (request.CreateExpenseOperation && amountToPay > 0 && !string.IsNullOrWhiteSpace(request.PaymentBankId))
+                if (request.CreateExpenseOperation && !string.IsNullOrWhiteSpace(request.PaymentBankId))
                 {
-                    // Tenta localizar uma categoria de cartão de crédito do usuário (opcional)
-                    var ccCategory = await context.Categories
-                        .Find(c => !c.Deleted && c.CreatedBy == userId && c.Type == "expense" &&
-                                   (c.Name.ToLower().Contains("cartão") || c.Name.ToLower().Contains("cartao")))
-                        .FirstOrDefaultAsync();
+                    var expenseCategories = await context.Categories
+                        .Find(c => !c.Deleted && c.CreatedBy == userId && c.Type == "expense")
+                        .ToListAsync();
+
+                    var ccCategory = expenseCategories.FirstOrDefault(c =>
+                            c.Name.Contains("cartão", StringComparison.OrdinalIgnoreCase) ||
+                            c.Name.Contains("cartao", StringComparison.OrdinalIgnoreCase))
+                        ?? expenseCategories.FirstOrDefault(c =>
+                            c.Name.Contains("outro", StringComparison.OrdinalIgnoreCase))
+                        ?? expenseCategories.FirstOrDefault();
 
                     Operation op = new()
                     {
@@ -487,6 +498,7 @@ namespace api_finances.src.Services
                         Origin = "credit_card_invoice",
                         OriginId = invoice.Id,
                         CreatedAt = paidAt,
+                        UpdatedAt = DateTime.UtcNow,
                         CreatedBy = userId,
                         Active = true,
                         Deleted = false
