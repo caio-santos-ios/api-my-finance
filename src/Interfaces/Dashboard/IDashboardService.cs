@@ -11,7 +11,6 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<PaginationApi<List<dynamic>>>> GetAllAsync(GetAllRequest request);
         Task<ResponseApi<dynamic?>> GetByIdAggregateAsync(string id);
         Task<ResponseApi<dynamic?>> GetDashAppAsync(string userId, DateTime startDate, DateTime endDate);
-        Task<ResponseApi<ProjectedBalanceDto>> GetProjectedBalanceAsync(string userId, int? month = null, int? year = null);
         Task<ResponseApi<Dashboard?>> CreateAsync(CreateDashboardRequest request);
         Task<ResponseApi<Dashboard?>> UpdateAsync(UpdateDashboardRequest request);
     }
