@@ -228,7 +228,7 @@ namespace api_finances.src.Services
 
                 await repository.DeleteAsync(entity);
 
-                return new(entity, 204, "Dashboard excluido com sucesso.");
+                return new(entity, 200, "Dashboard excluído com sucesso.");
             }
             catch (Exception ex)
             {

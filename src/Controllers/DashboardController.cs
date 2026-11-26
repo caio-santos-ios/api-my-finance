@@ -74,5 +74,12 @@ namespace api_finances.src.Controllers
             ResponseApi<Dashboard?> response = await service.UpdateAsync(request);
             return StatusCode(response.StatusCode, response.Result);
         }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete(string id)
+        {
+            ResponseApi<Dashboard?> response = await service.DeleteAsync(new() { Id = id, DeletedBy = UserId });
+            return StatusCode(response.StatusCode, response.Result);
+        }
     }
 }
