@@ -43,6 +43,13 @@ namespace api_finances.src.Controllers
             return StatusCode(response.StatusCode, response.Result);
         }
 
+        [HttpGet("projected-balance")]
+        public async Task<IActionResult> GetProjectedBalance([FromQuery] int? month, [FromQuery] int? year)
+        {
+            var response = await service.GetProjectedBalanceAsync(UserId, month, year);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
         [HttpGet("{id}")]
         public async Task<IActionResult> GetByIdAsync(string id)
         {

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using api_finances.src.Infraestructure;
 using api_finances.src.Interfaces;
 using api_finances.src.Models;
 using api_finances.src.Models.Base;
@@ -18,7 +19,8 @@ namespace api_finances.src.Services
 
     public class DashboardService(
         IDashboardRepository repository,
-        IMongoDatabase db
+        IMongoDatabase db,
+        AppDbContext context
     ) : IDashboardService
     {
         private static readonly HashSet<string> ForbiddenOperators = new()
@@ -313,6 +315,262 @@ namespace api_finances.src.Services
             var doc = BsonDocument.Parse($"{{ \"stages\": {json} }}");
             return doc["stages"].AsBsonArray;
         }
+        public async Task<ResponseApi<ProjectedBalanceDto>> GetProjectedBalanceAsync(string userId, int? month = null, int? year = null)
+        {
+            try
+            {
+                DateTime now = DateTime.UtcNow;
+                int targetYear = year.HasValue && year.Value >= 2000 && year.Value <= 2100 ? year.Value : now.Year;
+                int targetMonth = month.HasValue && month.Value >= 1 && month.Value <= 12 ? month.Value : now.Month;
+                int daysInMonth = DateTime.DaysInMonth(targetYear, targetMonth);
+
+                bool isCurrentMonth = targetYear == now.Year && targetMonth == now.Month;
+                bool isFutureMonth = targetYear > now.Year || (targetYear == now.Year && targetMonth > now.Month);
+                int startDay = isCurrentMonth ? now.Day : 1;
+
+                DateTime endOfToday = new(now.Year, now.Month, now.Day, 23, 59, 59, 999, DateTimeKind.Utc);
+                DateTime startOfTargetMonth = new(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc);
+                DateTime endOfTargetMonth = new(targetYear, targetMonth, daysInMonth, 23, 59, 59, 999, DateTimeKind.Utc);
+
+                // 1. Saldo inicial (bancos ativos do usuário)
+                var banks = await context.Banks
+                    .Find(b => !b.Deleted && b.Active && b.CreatedBy == userId)
+                    .ToListAsync();
+                var activeBankIds = banks.Select(b => b.Id).ToHashSet();
+
+                var allUserOps = await context.Operations
+                    .Find(o => !o.Deleted && o.Active && o.CreatedBy == userId)
+                    .ToListAsync();
+
+                decimal currentBalance = 0m;
+                foreach (var b in banks)
+                {
+                    decimal inc = allUserOps
+                        .Where(o => o.BankId == b.Id && o.CreatedAt <= endOfToday && (o.Type == "income" || o.Type == "revenue"))
+                        .Sum(o => o.Value);
+                    decimal exp = allUserOps
+                        .Where(o => o.BankId == b.Id && o.CreatedAt <= endOfToday && (o.Type == "expense" || o.Type == "transfer"))
+                        .Sum(o => o.Value);
+                    decimal inTransfers = allUserOps
+                        .Where(o => o.DestinationBankId == b.Id && o.CreatedAt <= endOfToday && o.Type == "transfer")
+                        .Sum(o => o.Value);
+                    currentBalance += Math.Round(inc - exp + inTransfers, 2);
+                }
+
+                List<ProjectedBalancePendingItemDto> pendingItems = [];
+
+                // Só projeta pendentes para mês atual ou futuro
+                if (isCurrentMonth || isFutureMonth)
+                {
+                    // 2a. Operações já cadastradas com data futura dentro do mês alvo
+                    DateTime futureStart = isCurrentMonth ? endOfToday.AddTicks(1) : startOfTargetMonth;
+                    var futureOps = allUserOps
+                        .Where(o => o.CreatedAt >= futureStart && o.CreatedAt <= endOfTargetMonth)
+                        .ToList();
+
+                    foreach (var op in futureOps)
+                    {
+                        if (op.Type == "income" || op.Type == "revenue")
+                        {
+                            pendingItems.Add(new ProjectedBalancePendingItemDto
+                            {
+                                Description = !string.IsNullOrWhiteSpace(op.Description) ? op.Description : "Receita agendada",
+                                Value = op.Value,
+                                Type = "revenue",
+                                DueDay = op.CreatedAt.Day,
+                                Source = "operation"
+                            });
+                        }
+                        else if (op.Type == "expense")
+                        {
+                            pendingItems.Add(new ProjectedBalancePendingItemDto
+                            {
+                                Description = !string.IsNullOrWhiteSpace(op.Description) ? op.Description : "Despesa agendada",
+                                Value = op.Value,
+                                Type = "expense",
+                                DueDay = op.CreatedAt.Day,
+                                Source = "operation"
+                            });
+                        }
+                    }
+
+                    // 2b. Transações Recorrentes ativas
+                    var recurringList = await context.RecurringTransactions
+                        .Find(r => !r.Deleted && r.Active && r.CreatedBy == userId)
+                        .ToListAsync();
+
+                    foreach (var rec in recurringList)
+                    {
+                        if (rec.Value <= 0) continue;
+
+                        bool alreadyPostedThisMonth = rec.LastPostedDate.HasValue
+                            && rec.LastPostedDate.Value.Year == targetYear
+                            && rec.LastPostedDate.Value.Month == targetMonth;
+                        if (alreadyPostedThisMonth) continue;
+
+                        string freq = (rec.Frequency ?? "monthly").Trim().ToLowerInvariant();
+                        if (freq == "yearly" && rec.CreatedAt.Month != targetMonth) continue;
+
+                        bool isRevenue = rec.Type.Equals("revenue", StringComparison.OrdinalIgnoreCase)
+                            || rec.Type.Equals("income", StringComparison.OrdinalIgnoreCase);
+                        string normalizedType = isRevenue ? "revenue" : "expense";
+
+                        if (freq == "weekly")
+                        {
+                            int d = Math.Clamp(rec.DueDay, 1, daysInMonth);
+                            while (d <= daysInMonth)
+                            {
+                                if (d >= startDay)
+                                {
+                                    pendingItems.Add(new ProjectedBalancePendingItemDto
+                                    {
+                                        Description = rec.Description,
+                                        Value = rec.Value,
+                                        Type = normalizedType,
+                                        DueDay = d,
+                                        Source = "recurring"
+                                    });
+                                }
+                                d += 7;
+                            }
+                        }
+                        else
+                        {
+                            int dueDay = Math.Clamp(rec.DueDay, 1, daysInMonth);
+                            if (dueDay >= startDay)
+                            {
+                                pendingItems.Add(new ProjectedBalancePendingItemDto
+                                {
+                                    Description = rec.Description,
+                                    Value = rec.Value,
+                                    Type = normalizedType,
+                                    DueDay = dueDay,
+                                    Source = "recurring"
+                                });
+                            }
+                        }
+                    }
+
+                    // 2c. Dívidas ativas não quitadas sem pagamento no mês alvo
+                    var debts = await context.Debts
+                        .Find(d => !d.Deleted && d.Active && !d.Settled && d.RemainingAmount > 0 && d.CreatedBy == userId)
+                        .ToListAsync();
+
+                    if (debts.Count > 0)
+                    {
+                        var debtIds = debts.Select(d => d.Id).ToList();
+                        var paidDebtIds = (await context.DebtPayments
+                            .Find(p => !p.Deleted && debtIds.Contains(p.DebtId) && p.Date >= startOfTargetMonth && p.Date <= endOfTargetMonth)
+                            .ToListAsync())
+                            .Select(p => p.DebtId)
+                            .ToHashSet();
+
+                        foreach (var debt in debts)
+                        {
+                            if (paidDebtIds.Contains(debt.Id)) continue;
+
+                            int dueDay = Math.Clamp(debt.DueDay, 1, daysInMonth);
+                            if (dueDay < startDay) continue;
+
+                            decimal installment = debt.InstallmentAmount > 0
+                                ? Math.Min(debt.InstallmentAmount, debt.RemainingAmount)
+                                : debt.RemainingAmount;
+
+                            if (installment <= 0) continue;
+
+                            pendingItems.Add(new ProjectedBalancePendingItemDto
+                            {
+                                Description = !string.IsNullOrWhiteSpace(debt.Name) ? $"Parcela: {debt.Name}" : "Parcela de dívida",
+                                Value = installment,
+                                Type = "expense",
+                                DueDay = dueDay,
+                                Source = "debt"
+                            });
+                        }
+                    }
+                }
+
+                pendingItems = pendingItems
+                    .OrderBy(i => i.DueDay)
+                    .ThenBy(i => i.Type == "revenue" ? 0 : 1)
+                    .ThenBy(i => i.Description)
+                    .ToList();
+
+                // 3. Linha do tempo diária (do startDay até o último dia do mês)
+                CultureInfo ptBr = new("pt-BR");
+                decimal runningBalance = currentBalance;
+                List<ProjectedBalanceTimelineItemDto> timeline = [];
+
+                ProjectedBalanceLowestPointDto lowestPoint = new()
+                {
+                    Day = startDay,
+                    Date = new DateTime(targetYear, targetMonth, startDay).ToString("yyyy-MM-dd"),
+                    Balance = runningBalance,
+                    IsDeficit = runningBalance < 0
+                };
+
+                for (int d = startDay; d <= daysInMonth; d++)
+                {
+                    var dayItems = pendingItems.Where(i => i.DueDay == d).ToList();
+                    decimal dayRevenues = dayItems.Where(i => i.Type == "revenue").Sum(i => i.Value);
+                    decimal dayExpenses = dayItems.Where(i => i.Type == "expense").Sum(i => i.Value);
+
+                    runningBalance = Math.Round(runningBalance + dayRevenues - dayExpenses, 2);
+
+                    List<string> events = dayItems.Select(i =>
+                    {
+                        string sign = i.Type == "revenue" ? "+" : "-";
+                        return $"{i.Description} ({sign}R$ {i.Value.ToString("N2", ptBr)})";
+                    }).ToList();
+
+                    string dateStr = new DateTime(targetYear, targetMonth, d).ToString("yyyy-MM-dd");
+
+                    timeline.Add(new ProjectedBalanceTimelineItemDto
+                    {
+                        Day = d,
+                        Date = dateStr,
+                        Balance = runningBalance,
+                        Events = events
+                    });
+
+                    if (runningBalance < lowestPoint.Balance)
+                    {
+                        lowestPoint = new ProjectedBalanceLowestPointDto
+                        {
+                            Day = d,
+                            Date = dateStr,
+                            Balance = runningBalance,
+                            IsDeficit = runningBalance < 0
+                        };
+                    }
+                }
+
+                decimal pendingRevenues = Math.Round(pendingItems.Where(i => i.Type == "revenue").Sum(i => i.Value), 2);
+                decimal pendingExpenses = Math.Round(pendingItems.Where(i => i.Type == "expense").Sum(i => i.Value), 2);
+                decimal projectedEndBalance = Math.Round(currentBalance + pendingRevenues - pendingExpenses, 2);
+
+                var dto = new ProjectedBalanceDto
+                {
+                    Month = targetMonth,
+                    Year = targetYear,
+                    CurrentBalance = currentBalance,
+                    PendingRevenues = pendingRevenues,
+                    PendingExpenses = pendingExpenses,
+                    ProjectedEndBalance = projectedEndBalance,
+                    Status = projectedEndBalance >= 0 ? "positive" : "negative",
+                    LowestPoint = lowestPoint,
+                    DailyTimeline = timeline,
+                    PendingItems = pendingItems
+                };
+
+                return new(dto, 200, "Saldo projetado calculado com sucesso");
+            }
+            catch (Exception ex)
+            {
+                return new(null, 500, $"Erro ao calcular saldo projetado: {ex.Message}");
+            }
+        }
+
         private static BsonValue ParseParameter(string value)
         {
             if (bool.TryParse(value, out var b)) return b;
