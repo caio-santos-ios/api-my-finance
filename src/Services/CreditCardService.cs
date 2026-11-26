@@ -158,6 +158,11 @@ namespace api_finances.src.Services
                 card.DeletedBy = userId;
                 await context.CreditCards.ReplaceOneAsync(c => c.Id == card.Id, card);
 
+                var cardInvoiceIds = (await context.CreditCardInvoices
+                    .Find(i => i.CreditCardId == id && !i.Deleted)
+                    .Project(i => i.Id)
+                    .ToListAsync());
+
                 await context.CreditCardInvoices.UpdateManyAsync(
                     i => i.CreditCardId == id && !i.Deleted,
                     Builders<CreditCardInvoice>.Update
@@ -171,6 +176,11 @@ namespace api_finances.src.Services
                         .Set(t => t.Deleted, true)
                         .Set(t => t.DeletedAt, now)
                         .Set(t => t.DeletedBy, userId));
+
+                if (cardInvoiceIds.Count > 0)
+                {
+                    await SoftDeleteInvoiceOperationsAsync(userId, cardInvoiceIds, now);
+                }
 
                 return new(true, 200, "Cartão de crédito excluído com sucesso.");
             }
@@ -211,9 +221,37 @@ namespace api_finances.src.Services
                 var bankMap = banks.ToDictionary(b => b.Id, b => b.Name);
 
                 var result = new List<CreditCardInvoiceResponseDto>();
+                List<string> emptyInvoiceIdsToCleanOps = [];
+
                 foreach (var inv in invoices)
                 {
                     var stats = txByInvoice.TryGetValue(inv.Id, out var s) ? s : (Count: 0, Total: 0m);
+                    bool isCurrentCycle = inv.Year == currYear && inv.Month == currMonth;
+
+                    if (stats.Count == 0)
+                    {
+                        emptyInvoiceIdsToCleanOps.Add(inv.Id);
+
+                        if (!isCurrentCycle)
+                        {
+                            inv.Deleted = true;
+                            inv.DeletedAt = now;
+                            inv.DeletedBy = userId;
+                            inv.UpdatedAt = now;
+                            await context.CreditCardInvoices.ReplaceOneAsync(x => x.Id == inv.Id, inv);
+                            continue;
+                        }
+
+                        if (inv.Status == "paid" || inv.PaidAt != null || inv.PaymentBankId != null || inv.TotalAmount != 0)
+                        {
+                            inv.Status = now > inv.ClosingDate ? "closed" : "open";
+                            inv.PaidAt = null;
+                            inv.PaymentBankId = null;
+                            inv.TotalAmount = 0;
+                            inv.UpdatedAt = now;
+                            await context.CreditCardInvoices.ReplaceOneAsync(x => x.Id == inv.Id, inv);
+                        }
+                    }
 
                     // Atualiza status e totalAmount se necessário
                     string effectiveStatus = inv.Status;
@@ -251,6 +289,11 @@ namespace api_finances.src.Services
                         TotalAmount = stats.Total,
                         TransactionCount = stats.Count
                     });
+                }
+
+                if (emptyInvoiceIdsToCleanOps.Count > 0)
+                {
+                    await SoftDeleteInvoiceOperationsAsync(userId, emptyInvoiceIdsToCleanOps, now);
                 }
 
                 return new(result, 200, "Faturas listadas com sucesso.");
@@ -425,9 +468,16 @@ namespace api_finances.src.Services
                     await context.CreditCardTransactions.ReplaceOneAsync(t => t.Id == tx.Id, tx);
                 }
 
+                var card = await context.CreditCards
+                    .Find(c => c.Id == cardId && !c.Deleted && c.CreatedBy == userId)
+                    .FirstOrDefaultAsync();
+                var (currYear, currMonth) = card != null
+                    ? GetInvoiceMonthYearForDate(now, card.ClosingDay)
+                    : (now.Year, now.Month);
+
                 foreach (var invId in affectedInvoiceIds)
                 {
-                    await RecalculateInvoiceTotalAsync(invId);
+                    await RecalculateOrCleanupInvoiceAsync(userId, invId, currYear, currMonth, now);
                 }
 
                 return new(true, 200, "Lançamento excluído com sucesso.");
@@ -577,6 +627,82 @@ namespace api_finances.src.Services
                 Builders<CreditCardInvoice>.Update
                     .Set(i => i.TotalAmount, total)
                     .Set(i => i.UpdatedAt, DateTime.UtcNow));
+
+            if (total > 0)
+            {
+                await context.Operations.UpdateManyAsync(
+                    o => o.Origin == "credit_card_invoice" && o.OriginId == invoiceId && !o.Deleted,
+                    Builders<Operation>.Update
+                        .Set(o => o.Value, total)
+                        .Set(o => o.UpdatedAt, DateTime.UtcNow));
+            }
+        }
+
+        private async Task RecalculateOrCleanupInvoiceAsync(string userId, string invoiceId, int currYear, int currMonth, DateTime now)
+        {
+            var inv = await context.CreditCardInvoices
+                .Find(i => i.Id == invoiceId && !i.Deleted)
+                .FirstOrDefaultAsync();
+            if (inv is null) return;
+
+            var txs = await context.CreditCardTransactions
+                .Find(t => t.InvoiceId == invoiceId && !t.Deleted)
+                .ToListAsync();
+
+            if (txs.Count == 0)
+            {
+                await SoftDeleteInvoiceOperationsAsync(userId, [invoiceId], now);
+
+                bool isCurrentCycle = inv.Year == currYear && inv.Month == currMonth;
+                if (!isCurrentCycle)
+                {
+                    inv.Deleted = true;
+                    inv.DeletedAt = now;
+                    inv.DeletedBy = userId;
+                    inv.TotalAmount = 0;
+                    inv.UpdatedAt = now;
+                    await context.CreditCardInvoices.ReplaceOneAsync(i => i.Id == inv.Id, inv);
+                }
+                else
+                {
+                    inv.Status = now > inv.ClosingDate ? "closed" : "open";
+                    inv.PaidAt = null;
+                    inv.PaymentBankId = null;
+                    inv.TotalAmount = 0;
+                    inv.UpdatedAt = now;
+                    await context.CreditCardInvoices.ReplaceOneAsync(i => i.Id == inv.Id, inv);
+                }
+
+                return;
+            }
+
+            decimal total = Math.Round(txs.Sum(t => t.Value), 2);
+            inv.TotalAmount = total;
+            inv.UpdatedAt = now;
+            await context.CreditCardInvoices.ReplaceOneAsync(i => i.Id == inv.Id, inv);
+
+            if (inv.Status == "paid")
+            {
+                await context.Operations.UpdateManyAsync(
+                    o => o.Origin == "credit_card_invoice" && o.OriginId == invoiceId && !o.Deleted && o.CreatedBy == userId,
+                    Builders<Operation>.Update
+                        .Set(o => o.Value, total)
+                        .Set(o => o.UpdatedAt, now));
+            }
+        }
+
+        private async Task SoftDeleteInvoiceOperationsAsync(string userId, IEnumerable<string> invoiceIds, DateTime now)
+        {
+            var ids = invoiceIds.Distinct().ToList();
+            if (ids.Count == 0) return;
+
+            await context.Operations.UpdateManyAsync(
+                o => o.Origin == "credit_card_invoice" && o.OriginId != null && ids.Contains(o.OriginId) && !o.Deleted && o.CreatedBy == userId,
+                Builders<Operation>.Update
+                    .Set(o => o.Deleted, true)
+                    .Set(o => o.DeletedAt, now)
+                    .Set(o => o.DeletedBy, userId)
+                    .Set(o => o.UpdatedAt, now));
         }
     }
 }
