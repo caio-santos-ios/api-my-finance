@@ -75,6 +75,15 @@ namespace api_finances.src.Controllers
             return StatusCode(response.StatusCode, response.Result);
         }
 
+        [HttpPut("reorder")]
+        public async Task<IActionResult> Reorder([FromBody] ReorderDashboardRequest request)
+        {
+            request.UpdatedBy = UserId;
+
+            ResponseApi<bool> response = await service.ReorderAsync(request);
+            return StatusCode(response.StatusCode, response.Result);
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {

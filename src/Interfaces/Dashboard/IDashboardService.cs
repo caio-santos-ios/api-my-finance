@@ -13,6 +13,7 @@ namespace api_finances.src.Interfaces
         Task<ResponseApi<dynamic?>> GetDashAppAsync(string userId, DateTime startDate, DateTime endDate);
         Task<ResponseApi<Dashboard?>> CreateAsync(CreateDashboardRequest request);
         Task<ResponseApi<Dashboard?>> UpdateAsync(UpdateDashboardRequest request);
+        Task<ResponseApi<bool>> ReorderAsync(ReorderDashboardRequest request);
         Task<ResponseApi<Dashboard?>> DeleteAsync(DeleteRequest request);
     }
 }

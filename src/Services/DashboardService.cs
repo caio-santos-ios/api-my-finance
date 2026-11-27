@@ -14,7 +14,8 @@ namespace api_finances.src.Services
 {
     public record DashboardDataResponse(
     string Id, string Name, string Type, string? CardClass,
-    Dictionary<string, string>? Formats, List<object?> Data, string? Error);
+    Dictionary<string, string>? Formats, List<object?> Data, string? Error,
+    int Sequence = 0, string Collection = "", DateTime? CreatedAt = null);
 
     public class DashboardService(
         IDashboardRepository repository,
@@ -48,13 +49,15 @@ namespace api_finances.src.Services
                         var rows = await ExecuteAsync(d, parameters);
                         return new DashboardDataResponse(
                             d.Id!, d.Name, d.Type, d.CardClass, d.Formats,
-                            rows.Select(ToPlain).ToList(), null);
+                            rows.Select(ToPlain).ToList(), null,
+                            d.Sequence, d.Collection, d.CreatedAt);
                     }
                     catch (Exception ex)
                     {
                         return new DashboardDataResponse(
                             d.Id!, d.Name, d.Type, d.CardClass, d.Formats,
-                            [], ex.Message);
+                            [], ex.Message,
+                            d.Sequence, d.Collection, d.CreatedAt);
                     }
                 });
 
@@ -211,6 +214,35 @@ namespace api_finances.src.Services
             catch (Exception ex)
             {
                 return new(null, 500, $"Ocorreu um erro inesperado. Por favor, tente novamente mais tarde. {ex.Message}");
+            }
+        }
+
+        public async Task<ResponseApi<bool>> ReorderAsync(ReorderDashboardRequest request)
+        {
+            try
+            {
+                if (request.Items is null || request.Items.Count == 0)
+                    return new(false, 400, "Nenhum item informado para reordenação.");
+
+                DateTime now = DateTime.UtcNow;
+                foreach (var item in request.Items)
+                {
+                    if (string.IsNullOrWhiteSpace(item.Id)) continue;
+                    Dashboard? existed = await repository.GetByIdAsync(item.Id);
+                    if (existed is null) continue;
+                    if (!string.IsNullOrEmpty(request.UpdatedBy) && existed.CreatedBy != request.UpdatedBy) continue;
+
+                    existed.Sequence = item.Sequence;
+                    existed.UpdatedAt = now;
+                    existed.UpdatedBy = request.UpdatedBy;
+                    await repository.UpdateAsync(existed);
+                }
+
+                return new(true, 200, "Ordem dos cards atualizada com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                return new(false, 500, $"Erro ao reordenar dashboard: {ex.Message}");
             }
         }
         #endregion
