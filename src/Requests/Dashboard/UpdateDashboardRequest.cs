@@ -19,7 +19,7 @@ namespace api_finances.src.Requests.Dashboard
         [Required(ErrorMessage = "A Query é obrigatória.")]
         public string Query { get; set; } = string.Empty;
         public int Sequence { get; set; }
-        public string CardClass { get; set; } = string.Empty;
+        public string? CardClass { get; set; } = string.Empty;
         public Dictionary<string, string>? Formats { get; set; }
     }
 }
